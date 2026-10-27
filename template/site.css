@@ -181,6 +181,9 @@ h2 { font-size: clamp(28px, 8vw, 34px); font-weight: 900; line-height: 1.05; let
 .summary .btn { margin-top: 18px; }
 .summary .btn .ui:last-child { width: 18px; height: 18px; }
 .summary__phone { margin: 12px 0 0; font-size: 14px; color: var(--on-primary-muted); }
+.summary__new { margin: 12px 0 0; font-size: 14px; color: var(--on-primary-muted); }
+.link-btn { min-height: 44px; padding: 0 2px; border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.summary .link-btn { color: var(--primary-ink); }
 
 /* ---------- Нижняя панель (< 1100px) ---------- */
 .bar {
@@ -200,7 +203,8 @@ h2 { font-size: clamp(28px, 8vw, 34px); font-weight: 900; line-height: 1.05; let
 .sheet { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
 .sheet--whatsapp { --ch: #1a7f45; --chat: #ece5dd; }
 .sheet--telegram { --ch: #1f6fae; --chat: #dce8f0; }
-body.sheet-open { overflow: hidden; }
+/* Окно открыто: страница зафиксирована (top задаёт site.js) — без прокрутки под окном и без прыжка наверх */
+body.sheet-open { position: fixed; left: 0; right: 0; overflow: hidden; }
 .sheet__backdrop { position: absolute; inset: 0; background: rgba(20, 22, 21, .65); animation: fade var(--t) both; }
 .sheet__panel {
   position: relative; display: flex; flex-direction: column; width: 100%; max-height: 92vh; max-height: 92dvh; overflow: hidden;
@@ -223,7 +227,7 @@ body.sheet-open { overflow: hidden; }
 .bubble__text { margin: 0; white-space: pre-line; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .bubble__time { position: absolute; right: 10px; bottom: 5px; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
 .bubble__time .ui { color: var(--ch); }
-.sheet__area { position: absolute; left: -9999px; width: 1px; height: 1px; }
+.sheet__area { position: absolute; left: -9999px; width: 1px; height: 1px; font-size: 16px; }
 .sheet__hint, .sheet__warn { margin: 0; padding: 10px 18px 0; font-size: 14px; font-weight: 700; color: var(--ch); }
 .sheet__warn { color: #7a4d00; }
 .sheet__actions { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 14px 18px 16px; }
@@ -247,6 +251,22 @@ body.sheet-open { overflow: hidden; }
 .contact-btns { display: grid; gap: 10px; }
 .footer { margin-top: 40px; padding: 24px 0 32px; background: var(--primary); color: var(--on-primary-muted); font-size: 14px; }
 .footer p { margin: 0 0 6px; }
+
+/* Пока открыта экранная клавиатура, нижняя панель не висит над ней и не закрывает поле */
+body.typing .bar { display: none; }
+body.typing.has-bar { padding-bottom: 0; }
+
+/* Телефон боком (740×360): фото первого экрана ниже, чтобы заголовок и кнопки были видны сразу */
+@media (orientation: landscape) and (max-height: 500px) {
+  .hero { display: grid; grid-template-columns: 1fr 1fr; }
+  .hero__media { order: 2; aspect-ratio: auto; }
+  .hero__text { padding: 16px 18px; }
+  .hero__chip { margin-bottom: 8px; }
+  .hero__title { font-size: 24px; }
+  .hero__sub, .hero__stats { display: none; }
+  .hero__actions { margin-top: 14px; }
+  .demo-bar { padding: 1px 12px; }
+}
 
 /* ---------- Узкие телефоны (< 400px) ---------- */
 @media (max-width: 399px) {

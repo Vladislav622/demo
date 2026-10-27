@@ -17,6 +17,7 @@
   var scrollBehavior = reduceMotion ? 'auto' : 'smooth';
 
   var state = { machine: null, units: 0, date: '', dateKind: '', zone: null };
+  var draftReady = false; // до восстановления черновика его не перезаписываем
 
   var barEl = $('#bar');
   var machineSelect = $('#machine');
@@ -209,6 +210,7 @@
       document.body.classList.add('has-bar');
     }
     renderSummary();
+    if (draftReady) saveDraft();
     if (fromCard && m) $('#calc').scrollIntoView({ behavior: scrollBehavior, block: 'start' });
   }
 
@@ -244,6 +246,7 @@
     state.units = p.units;
     clearError('units');
     renderUnits();
+    if (draftReady) saveDraft();
   }
 
   function renderUnits() {
@@ -285,6 +288,7 @@
     $$('[data-date]').forEach(function (c) { c.setAttribute('aria-pressed', String(c.dataset.date === kind)); });
     dateHint.hidden = !(kind === 'today' && C.isLate(new Date()));
     if (state.date) clearError('date');
+    if (draftReady) saveDraft();
   }
 
   $$('[data-date]').forEach(function (chip) {
@@ -462,16 +466,29 @@
     sheetWarn.hidden = !order.cut;
     if (shareLink) shareLink.href = C.buildShareLink(location.href.split('#')[0], order.text);
     sheet.hidden = false;
-    document.body.classList.add('sheet-open');
+    lockScroll();
     // Фокус — на само окно: обводка у кнопок появляется только при работе с клавиатуры.
-    sheetPanel.focus();
+    sheetPanel.focus({ preventScroll: true });
   }
 
   function closeSheet() {
     if (sheet.hidden) return;
     sheet.hidden = true;
-    document.body.classList.remove('sheet-open');
+    unlockScroll();
     if (sheetOpener) sheetOpener.focus({ preventScroll: true });
+  }
+
+  // Страница под окном не прокручивается (iOS не слушается overflow:hidden у body) и не прыгает наверх.
+  var lockY = 0;
+  function lockScroll() {
+    lockY = window.scrollY;
+    document.body.style.top = -lockY + 'px';
+    document.body.classList.add('sheet-open');
+  }
+  function unlockScroll() {
+    document.body.classList.remove('sheet-open');
+    document.body.style.top = '';
+    window.scrollTo({ top: lockY, behavior: 'instant' });
   }
 
   // Копирование: Clipboard API, запасной вариант — выделить текст в скрытом поле и execCommand.
@@ -500,7 +517,25 @@
 
   copyBtn.addEventListener('click', copyText);
 
+  // Защита от двойного нажатия: второй переход не уходит, кнопка оживает через 3 с или при возврате на страницу.
+  var openLabel = $('[data-ch-open]', openBtn);
+  var openText = openLabel.textContent;
+  var openTimer = 0;
+  function releaseOpen() {
+    clearTimeout(openTimer);
+    openBtn.disabled = false;
+    openLabel.textContent = openText;
+  }
+
   openBtn.addEventListener('click', function () {
+    if (openBtn.disabled) return;
+    openBtn.disabled = true;
+    openText = openLabel.textContent;
+    openLabel.textContent = 'Открываем…';
+    openTimer = setTimeout(releaseOpen, 3000);
+    // Черновик остаётся на случай «Назад»; через 10 минут после отправки он очищается.
+    saveDraft(Date.now());
+    newOrderBox.hidden = false;
     // Telegram или сокращённый комментарий: полная заявка сначала уходит в буфер — её можно вставить в чат.
     if (data.channel === 'telegram' || current.cut) {
       copyText();
@@ -511,6 +546,7 @@
     // Переход в той же вкладке: window.open на телефоне блокируется.
     window.location.href = current.link;
   });
+  window.addEventListener('pageshow', releaseOpen);
 
   $$('[data-close]', sheet).forEach(function (el) { el.addEventListener('click', closeSheet); });
 
@@ -529,6 +565,84 @@
   // Форма не отправляется браузером (заявка уходит только через мессенджер).
   $('#order-form').addEventListener('submit', function (e) { e.preventDefault(); });
 
+  // ---------- Клавиатура на телефоне: нижняя панель не прыгает над ней, поле не закрыто ----------
+
+  var TYPING = 'input:not([type="checkbox"]):not([type="hidden"]), textarea, select';
+  document.addEventListener('focusin', function (e) {
+    if (e.target.matches && e.target.matches(TYPING) && e.target.closest('#order-form')) document.body.classList.add('typing');
+  });
+  document.addEventListener('focusout', function () {
+    setTimeout(function () {
+      var a = document.activeElement;
+      if (!(a && a.matches && a.matches(TYPING))) document.body.classList.remove('typing');
+    }, 50);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      var a = document.activeElement;
+      if (a && a.matches && a.matches(TYPING) && window.visualViewport.height < window.innerHeight * 0.85) {
+        a.scrollIntoView({ block: 'center', behavior: 'instant' });
+      }
+    });
+  }
+
+  // ---------- Черновик формы (sessionStorage): данные не теряются при возврате «Назад» из мессенджера ----------
+
+  var DRAFT_KEY = 'specsite-draft:' + data.slug;
+  var DRAFT_TTL = 10 * 60 * 1000;
+  var newOrderBox = $('#new-order');
+  var draftSentAt = 0;
+
+  function saveDraft(sentAt) {
+    if (sentAt) draftSentAt = sentAt;
+    var dz = {
+      machine: state.machine ? state.machine.id : '', units: state.units, date: state.date, dateKind: state.dateKind, zone: state.zone,
+      time: $('#time').value, address: $('#address').value, name: $('#client_name').value, phone: $('#client_phone').value,
+      comment: comment.value, consent: $('#consent').checked, sentAt: draftSentAt,
+    };
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(dz)); } catch (e) { /* приватный режим — без черновика */ }
+  }
+
+  function clearDraft() {
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* нет доступа */ }
+  }
+
+  function restoreDraft() {
+    var dz = null;
+    try { dz = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (e) { dz = null; }
+    if (!dz || typeof dz !== 'object') return;
+    if (dz.sentAt && Date.now() - dz.sentAt > DRAFT_TTL) { clearDraft(); return; }
+    var m = data.machines.find(function (x) { return x.id === dz.machine && C.isSelectable(x); });
+    if (m) {
+      select(m.id, false);
+      setUnits(Number(dz.units) || C.minUnits(m));
+    }
+    if (dz.date && dz.date >= today()) setDate(dz.date, dz.dateKind || 'other');
+    if (zoneSelect && dz.zone !== null && data.zones[dz.zone]) {
+      zoneSelect.value = String(dz.zone);
+      state.zone = Number(dz.zone);
+    }
+    $('#time').value = String(dz.time || '');
+    $('#address').value = C.clip(dz.address, C.LIMITS.address);
+    $('#client_name').value = C.clip(dz.name, C.LIMITS.name);
+    $('#client_phone').value = C.clip(dz.phone, C.LIMITS.phone);
+    comment.value = C.clip(dz.comment, C.LIMITS.comment);
+    $('#consent').checked = Boolean(dz.consent);
+    renderCount();
+    renderSummary();
+    draftSentAt = dz.sentAt || 0;
+    newOrderBox.hidden = !draftSentAt;
+  }
+
+  $('#order-form').addEventListener('input', function () { saveDraft(); });
+  $('#order-form').addEventListener('change', function () { saveDraft(); });
+  $('#new-order-btn').addEventListener('click', function () {
+    clearDraft();
+    window.location.reload();
+  });
+
   renderAllBusy(data);
   renderUnits();
+  restoreDraft();
+  draftReady = true;
 })();

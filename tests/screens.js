@@ -139,8 +139,9 @@ async function main() {
     if (r.exceptionDetails) throw new Error(`${r.exceptionDetails.exception?.description || 'ошибка в проверке'}\n  в выражении: ${expr.slice(0, 160)}`);
     return r.result.value;
   };
-  const open = async (w, h, mobile, target = url) => {
+  const open = async (w, h, mobile, target = url, keepDraft = false) => {
     await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
+    if (!keepDraft) await js('try { sessionStorage.clear(); } catch (e) {}').catch(() => {});
     await b.send('Page.navigate', { url: target });
     for (let i = 0; i < 60; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
     await sleep(300);
@@ -357,6 +358,8 @@ async function main() {
       const opts = await js("[...document.querySelectorAll('#machine option')].filter((o) => o.value).map((o) => o.textContent)");
       check('360: в списке техники только названия', opts.every((t) => !t.includes('·')), opts.slice(0, 2).join('; '));
 
+      await js('document.activeElement.blur()');
+      await sleep(100);
       const overlap = await js(`(() => { const f = document.querySelector('[data-field="consent"]'); f.scrollIntoView({ block: 'end' });
         const fr = f.getBoundingClientRect(), br = document.getElementById('bar').getBoundingClientRect();
         return { field: Math.round(fr.bottom), bar: Math.round(br.top), pad: parseFloat(getComputedStyle(document.body).paddingBottom), barH: Math.round(br.height) }; })()`);
@@ -369,11 +372,18 @@ async function main() {
 
       await open(360, 740, true);
       await fillOrder(firstFree);
+      await tap('#address');
+      const typing = await js("({ cls: document.body.classList.contains('typing'), bar: getComputedStyle(document.getElementById('bar')).display })");
+      await js('document.activeElement.blur()');
+      await sleep(150);
+      const typed = await js("({ cls: document.body.classList.contains('typing'), bar: getComputedStyle(document.getElementById('bar')).display })");
+      check('клавиатура: пока набирают текст, нижняя панель не висит над полем', typing.cls && typing.bar === 'none' && !typed.cls && typed.bar !== 'none', JSON.stringify({ typing, typed }));
       const bar2 = await js(BAR);
       check('панель 360 после заполнения: сумма помещается', (priced ? bar2.lines === 1 : bar2.lines <= 2) && bar2.fits, `«${bar2.text.replace(/\u00a0/g, ' ')}»`);
       notes.push(`После заполнения (360): ${await js(`[...document.querySelectorAll('.summary__rows div')].filter((d) => !d.hidden).map((d) => d.querySelector('dt').textContent + ': ' + d.querySelector('dd').textContent).concat('Итого: ' + document.getElementById('sum-total').textContent).join('; ')`)}`.replace(/\u00a0/g, ' '));
       await tap('#submit');
       await sleep(300);
+      const lockedY = await js("({ y: -parseInt(document.body.style.top || '0', 10), pos: getComputedStyle(document.body).position })");
       const sh1 = await js(SHEET);
       const chName = F.channel === 'telegram' ? 'Telegram' : 'WhatsApp';
       check(`окно «Заявка для ${chName}» снизу во всю ширину`, sh1.open && sh1.title === `Заявка для ${chName}` && sh1.w === sh1.vw && sh1.bottom === sh1.vh, `${sh1.sub}; ${sh1.w}×, низ ${sh1.bottom}`);
@@ -384,6 +394,8 @@ async function main() {
       await key('Escape');
       const afterEsc = await js("({ open: !document.getElementById('sheet').hidden, active: document.activeElement.id })");
       check('Esc закрывает окно, фокус возвращается на кнопку', !afterEsc.open && afterEsc.active === 'submit', JSON.stringify(afterEsc));
+      const yAfter = await js('Math.round(scrollY)');
+      check('окно: страница под ним зафиксирована, после закрытия прокрутка на месте', lockedY.pos === 'fixed' && Math.abs(yAfter - lockedY.y) <= 2, `было ${lockedY.y}, стало ${yAfter}`);
       await tap('#submit');
       await tap('#sheet-copy');
       await sleep(250);
@@ -393,13 +405,27 @@ async function main() {
       check('«Скопировать заявку» → «Скопировано ✓», в буфере текст заявки', copied.label === 'Скопировано ✓' && copied.same, JSON.stringify(copied));
       const before = navLinks.length;
       await tap('#sheet-open');
-      await sleep(1200);
+      const busyBtn = await js("({ disabled: document.getElementById('sheet-open').disabled, label: document.querySelector('[data-ch-open]').textContent })");
+      await tap('#sheet-open');
+      await sleep(1500);
+      check('двойное нажатие «Открыть …» — один переход', navLinks.length - before === 1 && busyBtn.disabled && busyBtn.label === 'Открываем…', `переходов: ${navLinks.length - before}, «${busyBtn.label}»`);
       sheetLink = navLinks[navLinks.length - 1] || '';
       sheetText = sh1.text;
+      const hintShown = await js("!document.getElementById('sheet-hint').hidden").catch(() => false);
       const linkText = sheetLink ? new URL(sheetLink).searchParams.get('text') : '';
       check(`«Открыть ${chName}» ведёт в мессенджер с текстом заявки`, navLinks.length > before && linkText === sh1.text, sheetLink.slice(0, 70));
+      await open(360, 740, true, url, true);
+      const draft = await js(`({ machine: document.getElementById('machine').value, address: document.getElementById('address').value,
+        comment: document.getElementById('comment').value, total: document.getElementById('sum-total').textContent, newOrder: !document.getElementById('new-order').hidden })`);
+      check('черновик: после возврата на страницу форма и расчёт на месте', draft.machine === firstFree && draft.address === 'Тестовый адрес, 5' && draft.comment === 'нужен ковш 0,5' && draft.newOrder,
+        `${draft.machine}, «${draft.address}», итого ${draft.total.replace(/\u00a0/g, ' ')}`);
+      await tap('#new-order-btn');
+      await sleep(800);
+      for (let i = 0; i < 40; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
+      const cleared = await js("({ machine: document.getElementById('machine').value, address: document.getElementById('address').value })");
+      check('«Начать новую заявку» очищает форму', cleared.machine === '' && cleared.address === '', JSON.stringify(cleared));
       if (F.channel === 'telegram') {
-        check('Telegram: подсказка «Заявка скопирована…» и «Поделиться через Telegram»', (await js(SHEET).catch(() => ({ hint: true }))).hint !== false && /^https:\/\/t\.me\/share\/url\?/.test(sh1.share), sh1.share.slice(0, 50));
+        check('Telegram: подсказка «Заявка скопирована…» и «Поделиться через Telegram»', hintShown && /^https:\/\/t\.me\/share\/url\?/.test(sh1.share), sh1.share.slice(0, 50));
       }
     }
   }
@@ -458,6 +484,48 @@ async function main() {
     check('1280: тап по фону закрывает окно', await js("document.getElementById('sheet').hidden"), '');
   }
   check('кнопки, чипы и поля ≥ 44px (1280)', (await js(SMALL)).length === 0, '');
+
+  // ---------- Ширины 320…1920: нет горизонтального скролла, ничего не обрезано, на 1920 контент не растянут ----------
+  const CUT = `(() => { const iw = document.documentElement.clientWidth;
+    const bad = [...document.querySelectorAll('body *')].filter((e) => {
+      if (!e.getClientRects().length || e.closest('[hidden], .grid, .reviews, .sheet, .sheet__area')) return false;
+      const r = e.getBoundingClientRect(); return r.width > 0 && (r.right > iw + 1 || r.left < -1);
+    }).slice(0, 4).map((e) => e.className || e.tagName);
+    const wrap = Math.max(...[...document.querySelectorAll('.wrap')].map((w) => w.getBoundingClientRect().width));
+    return { sw: document.documentElement.scrollWidth, iw: innerWidth, bad, wrap: Math.round(wrap) }; })()`;
+  const widthIssues = [];
+  for (const w of [320, 360, 390, 412, 768, 1024, 1280, 1440, 1920]) {
+    await open(w, w < 768 ? 800 : 900, w < 768);
+    const r = await js(CUT);
+    if (r.sw !== r.iw || r.bad.length) widthIssues.push(`${w}: ${r.sw}/${r.iw} ${r.bad.join(',')}`);
+    if (w === 1920 && r.wrap > 1240) widthIssues.push(`1920: контейнер ${r.wrap}px`);
+  }
+  check('ширины 320/360/390/412/768/1024/1280/1440/1920: без горизонтального скролла и обрезки, на 1920 контейнер ≤ 1240px', !widthIssues.length, widthIssues.join('; ') || 'все ширины');
+
+  // Телефон боком 740×360: заголовок и кнопка первого экрана видны сразу, окно заявки помещается и прокручивается.
+  await open(740, 360, true);
+  const land = await js(`(() => { const t = document.querySelector('.hero__actions').getBoundingClientRect(); return { actionsBottom: Math.round(t.bottom), vh: innerHeight }; })()`);
+  check('альбомная 740×360: кнопки первого экрана видны без прокрутки', land.actionsBottom <= land.vh, `низ кнопок ${land.actionsBottom}, экран ${land.vh}`);
+  if (selectable.length && F.channel !== 'phone') {
+    await fillOrder(firstFree);
+    await js("document.activeElement.blur(); document.getElementById('submit').click()");
+    await sleep(300);
+    const ls = await js(`(() => { const p = document.querySelector('.sheet__panel').getBoundingClientRect(), o = document.getElementById('sheet-open').getBoundingClientRect(), c = document.querySelector('.sheet__chat');
+      return { open: !document.getElementById('sheet').hidden, top: Math.round(p.top), bottom: Math.round(p.bottom), openBottom: Math.round(o.bottom), vh: innerHeight, scroll: c.scrollHeight > c.clientHeight }; })()`);
+    check('альбомная 740×360: окно заявки помещается, кнопка «Открыть» видна', ls.open && ls.top >= 0 && ls.bottom <= ls.vh && ls.openBottom <= ls.vh && ls.openBottom > 0, JSON.stringify(ls));
+    shots.push(await shot('740x360-sheet', false));
+  }
+
+  // iOS Safari: риски по вычисленным стилям (Safari в headless нет — проверяем то, что ломает iOS).
+  await open(390, 844, true);
+  const ios = await js(`(() => {
+    const css = [...document.querySelectorAll('style')].map((st) => st.textContent).join(' ');
+    const fonts = [...document.querySelectorAll('input, select, textarea')].filter((e) => e.type !== 'checkbox' && e.type !== 'hidden' && (e.getClientRects().length || e.id === 'sheet-area')).map((e) => parseFloat(getComputedStyle(e).fontSize));
+    return { minFont: Math.min(...fonts), safe: /[.]bar [{][^}]*safe-area-inset-bottom/.test(css) && /[.]sheet__panel [{][^}]*safe-area-inset-bottom/.test(css),
+      dvh: /dvh/.test(css), sticky: getComputedStyle(document.querySelector('.sticky')).position, tap: /tap-highlight/.test(css),
+      inertia: /overflow-scrolling: touch/.test(css), vh100: /100vh/.test(css) }; })()`);
+  check('iOS: шрифт полей ≥ 16px (нет зума), safe-area у панели и окна, dvh, sticky, tap-highlight, инерционная лента, нет 100vh',
+    ios.minFont >= 16 && ios.safe && ios.dvh && ios.sticky === 'sticky' && ios.tap && ios.inertia && !ios.vh100, JSON.stringify(ios));
 
   // ---------- Панель владельца (демо-режим, localStorage) ----------
   const adminUrl = `${url}admin/`;
