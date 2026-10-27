@@ -17,6 +17,7 @@ const path = require('path');
 const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
+const Calc = require('../template/app.js');
 const OUT = path.join(ROOT, 'checks');
 const BROWSERS = [
   process.env.BROWSER,
@@ -124,13 +125,13 @@ async function main() {
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || 'ошибка в проверке');
     return r.result.value;
   };
-  const open = async (w, h, mobile) => {
+  const open = async (w, h, mobile, target = url) => {
     await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
-    await b.send('Page.navigate', { url });
+    await b.send('Page.navigate', { url: target });
     for (let i = 0; i < 50; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
     await sleep(300);
   };
-  const shot = async (name, full) => {
+  const shot = async (name, full, hasHero = true) => {
     let params = { format: 'png' };
     if (full) {
       // Снимок всей страницы — от самого верха, иначе закреплённая шапка окажется посередине.
@@ -138,7 +139,9 @@ async function main() {
       // Ленивые картинки ниже экрана сами не загрузятся — догружаем перед съёмкой всей страницы.
       await js(`Promise.all([...document.images].map((i) => { i.loading = 'eager'; return i.decode().catch(() => {}); }))`);
       // При съёмке всей страницы vh растягивается — фиксируем высоту первого экрана в px.
-      await js(`(() => { const h = document.querySelector('.hero').getBoundingClientRect().height;
+      // Закреплённые снизу кнопки панели на снимке всей страницы ставим в поток, иначе они окажутся посередине.
+      if (!hasHero) await js(`(() => { const s = document.createElement('style'); s.id = 'fix-hero'; s.textContent = '.adm-bar{position:static!important}'; document.head.appendChild(s); })()`);
+      if (hasHero) await js(`(() => { const h = document.querySelector('.hero').getBoundingClientRect().height;
         const s = document.createElement('style'); s.id = 'fix-hero';
         s.textContent = '.hero{min-height:' + h + 'px!important;max-height:' + h + 'px!important}';
         document.head.appendChild(s); })()`);
@@ -440,6 +443,69 @@ async function main() {
   check('1280: крестик закрывает окно', await js("document.getElementById('sheet').hidden"), '');
 
   check('нет ошибок JS', errors.length === 0, errors.join('; '));
+
+  // ---------- Панель владельца (демо-режим, localStorage) ----------
+  const adminUrl = `${url}admin/`;
+  await open(360, 740, true, adminUrl);
+  const adm360 = await js(`(() => ({ demo: Boolean(document.querySelector('.demo-bar')), robots: document.querySelector('meta[name=robots]')?.content,
+    warn: document.querySelector('.adm-warn').textContent.trim(), cards: document.querySelectorAll('.ac').length,
+    cols: getComputedStyle(document.querySelector('.adm-grid')).gridTemplateColumns.split(' ').length,
+    sw: document.documentElement.scrollWidth, iw: innerWidth,
+    bar: getComputedStyle(document.querySelector('.adm-bar')).position, cur: document.querySelector('.adm-cur').textContent }))()`);
+  check('панель: плашка демо и noindex, полоса «Демо-режим панели…»', adm360.demo && adm360.robots === 'noindex, nofollow' && /^Демо-режим панели/.test(adm360.warn), adm360.warn.slice(0, 60) + '…');
+  check('панель 360: 1 колонка, «Сохранить» закреплена снизу, нет горизонтального скролла', adm360.cols === 1 && adm360.bar === 'fixed' && adm360.sw === adm360.iw,
+    `${adm360.cards} карточек; ${adm360.sw} = ${adm360.iw}; «${adm360.cur}»`);
+  const admSmall = await js(SMALL);
+  check('панель 360: кнопки и поля ≥ 44px', admSmall.length === 0, JSON.stringify(admSmall));
+  shots.push(await shot('admin-360', true, false));
+
+  await open(1280, 800, false, adminUrl);
+  const adm1280 = await js("getComputedStyle(document.querySelector('.adm-grid')).gridTemplateColumns.split(' ').length");
+  check('панель 1280: карточки в 2 колонки', adm1280 === 2, `${adm1280}`);
+  shots.push(await shot('admin-1280', true, false));
+
+  // Сценарий: первой свободной позиции — «Занята» и 14 000; первой «требует подтверждения» — «Свободна».
+  const ids = await js(`(() => { const cards = [...document.querySelectorAll('.ac')];
+    const st = (c) => c.querySelector('.seg__btn[aria-pressed="true"]')?.dataset.status;
+    return { a: cards.find((c) => st(c) === 'free')?.dataset.id, b: cards.find((c) => st(c) === 'confirm')?.dataset.id }; })()`);
+  await tap(`.ac[data-id="${ids.a}"] .seg__btn--busy`);
+  await setValue(`.ac[data-id="${ids.a}"] [name="rate"]`, '14 000');
+  if (ids.b) await tap(`.ac[data-id="${ids.b}"] .seg__btn--free`);
+  await tap('#adm-save');
+  const saved = await js("({ toast: !document.getElementById('adm-toast').hidden && document.querySelector('#adm-toast span').textContent, changed: document.querySelectorAll('.ac.is-changed').length })");
+  check('панель: «Сохранить» → тост «Сохранено. Откройте сайт, чтобы проверить»', saved.toast === 'Сохранено. Откройте сайт, чтобы проверить', `${saved.toast}; изменено карточек: ${saved.changed}`);
+
+  const SITE_STATE = `(() => { const card = (id) => document.querySelector('.mc[data-id="' + id + '"]');
+    const info = (id) => { const c = card(id); return c ? { status: c.dataset.status, chip: c.querySelector('.status').textContent.trim(), chipCls: c.querySelector('.status').className,
+      btn: c.querySelector('.mc__btn').textContent.trim(), disabled: c.querySelector('.mc__btn').disabled, price: c.querySelector('.mc__price').textContent.trim() } : null; };
+    const opts = [...document.querySelectorAll('#machine option')].map((o) => o.value);
+    return { a: info(${JSON.stringify(ids.a)}), b: info(${JSON.stringify(ids.b || '')}), aInSelect: opts.includes(${JSON.stringify(ids.a)}), bInSelect: opts.includes(${JSON.stringify(ids.b || '')}) }; })()`;
+  await open(1280, 800, false);
+  const after = await js(SITE_STATE);
+  check('сайт после панели: позиция «Занята», не выбирается, нет в списке расчёта', after.a.status === 'busy' && after.a.disabled && !after.aInSelect,
+    `${ids.a}: ${after.a.chip}, кнопка «${after.a.btn}», в select: ${after.aInSelect ? 'да' : 'нет'}`);
+  check('сайт после панели: новая цена 14 000 ₸', /^14\u00a0000 ₸/.test(after.a.price), after.a.price);
+  if (ids.b) check('сайт после панели: «требует подтверждения» → «Свободна», зелёный чип', after.b.status === 'free' && /status--free/.test(after.b.chipCls) && after.bInSelect, `${ids.b}: ${after.b.chip}`);
+  await tap(`.mc[data-id="${ids.a}"] .mc__btn`);
+  const stillNone = await js(SELECTED);
+  check('сайт после панели: тап по занятой ничего не выбирает', stillNone.cards.length === 0, JSON.stringify(stillNone));
+  await js(`document.getElementById('choose').scrollIntoView({ block: 'start' })`);
+  await sleep(200);
+  shots.push(await shot('1280-after-admin', false));
+  await open(360, 740, true);
+  const after360 = await js(SITE_STATE);
+  await js(`document.querySelector('.mc[data-id="${ids.a}"]').scrollIntoView({ block: 'center', inline: 'start' })`);
+  await sleep(400);
+  shots.push(await shot('360-after-admin', false));
+  check('сайт 360 после панели: та же позиция занята', after360.a.status === 'busy', after360.a.chip);
+
+  await open(1280, 800, false, adminUrl);
+  await tap('#adm-reset');
+  await open(1280, 800, false);
+  const reset = await js(SITE_STATE);
+  const cfgA = cfg.machines ? cfg.machines.find((m) => m.id === ids.a) : null;
+  check('«Сбросить к исходным» → сайт как в конфиге', reset.a.status !== 'busy' && reset.aInSelect && (!ids.b || reset.b.status === 'confirm')
+    && (!cfgA || reset.a.price.startsWith(Calc.fmtNum(cfgA.rate_from))), `${ids.a}: ${reset.a.chip}, ${reset.a.price}; ${ids.b || ''}: ${reset.b ? reset.b.chip : ''}`);
 
   // ---------- Slow 3G, без фото, без кэша ----------
   // Пресет DevTools «Slow 3G»: задержка 2000 мс, ~400 Кбит/с в обе стороны.

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Панель владельца — {{name}}</title>
+<style>{{{inline_css}}}</style>
+{{{color_style}}}
+</head>
+<body data-page="admin">
+<div class="sticky">
+  <div class="demo-bar" role="note">Демо-концепт, не официальный сайт, удалим по первой просьбе</div>
+  <header class="top">
+    <div class="wrap top__in">
+      <a class="brand" href="../">
+        <span class="brand__logo">{{{logo_html}}}</span>
+        <span class="brand__text">
+          <span class="brand__name">{{name}}</span>
+          <span class="brand__tagline">Панель владельца</span>
+        </span>
+      </a>
+      <div class="top__actions">
+        <a class="btn btn--outline adm-site" href="../">Открыть сайт{{{icon_ext}}}</a>
+      </div>
+    </div>
+  </header>
+</div>
+
+<div class="adm-warn" role="note"><div class="wrap">{{{icon_warn}}}<span>Демо-режим панели: изменения видны только на этом устройстве. В рабочей версии они сразу появятся у всех клиентов.</span></div></div>
+<div class="adm-warn adm-warn--error" id="adm-nostore" role="alert" hidden><div class="wrap">{{{icon_warn}}}<span>Сохранение недоступно в этом браузере (например, в режиме инкогнито). Изменения не сохранятся.</span></div></div>
+
+<main class="wrap adm">
+  <div class="adm-head">
+    <h1>Настройки техники</h1>
+    <p class="adm-cur">Цены указаны в {{currency}}</p>
+  </div>
+
+  <form id="adm-form" novalidate>
+    <div class="adm-grid">
+{{{admin_cards}}}
+    </div>
+
+    <section class="card adm-contact" aria-labelledby="adm-contact-title">
+      <p class="eyebrow" id="adm-contact-title">Контакт для заявок</p>
+      <div class="row">
+        <label class="field" data-field="whatsapp">
+          <span class="field__label">Номер WhatsApp</span>
+          <span class="ctl">{{{icon_wa}}}<input class="input" id="adm-wa" type="tel" inputmode="numeric" placeholder="77011234567" autocomplete="off"></span>
+          <span class="hint">Только цифры, с кодом страны</span>
+          <span class="err" hidden></span>
+        </label>
+        <label class="field" data-field="telegram">
+          <span class="field__label">Telegram username</span>
+          <span class="ctl">{{{icon_tg}}}<input class="input" id="adm-tg" type="text" placeholder="без @" autocomplete="off" autocapitalize="off" spellcheck="false"></span>
+          <span class="hint">Запасной канал, если нет WhatsApp</span>
+          <span class="err" hidden></span>
+        </label>
+      </div>
+      <div class="field" data-field="channel">
+        <span class="field__label" id="adm-ch-label">Главный канал заявок</span>
+        <div class="seg seg--2" role="group" aria-labelledby="adm-ch-label">
+          <button type="button" class="seg__btn seg__btn--on" data-channel="whatsapp" aria-pressed="false">WhatsApp</button>
+          <button type="button" class="seg__btn seg__btn--on" data-channel="telegram" aria-pressed="false">Telegram</button>
+        </div>
+        <span class="err" hidden></span>
+      </div>
+    </section>
+
+    <div class="adm-bar">
+      <div class="adm-bar__in">
+        <button type="button" class="btn btn--outline" id="adm-reset">Сбросить к исходным</button>
+        <button type="submit" class="btn btn--accent" id="adm-save">Сохранить</button>
+      </div>
+    </div>
+  </form>
+</main>
+
+<div class="toast" id="adm-toast" role="status" hidden>
+  <span>Сохранено. Откройте сайт, чтобы проверить</span>
+  <a href="../" id="adm-toast-link">Открыть сайт</a>
+</div>
+
+<script id="site-data" type="application/json">{{{data_json}}}</script>
+<script>{{{inline_js}}}</script>
+</body>
+</html>

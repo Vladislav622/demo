@@ -1,0 +1,89 @@
+/* Панель владельца (демо-режим). Подключается вместе со style.css. */
+
+.adm-site .ui--sm { width: 16px; height: 16px; }
+.top .adm-site { min-height: 44px; padding: 0 14px; }
+
+.adm-warn { background: #fff1e6; color: #6b2e0e; border-bottom: 1px solid #f3cfb3; font-size: 14px; line-height: 1.4; }
+.adm-warn .wrap { display: flex; align-items: flex-start; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
+.adm-warn .ui { width: 18px; height: 18px; margin-top: 1px; color: var(--accent); }
+.adm-warn--error { background: #fdecea; color: #7a1a12; border-color: #f5c2bc; }
+
+.adm { padding-top: 24px; padding-bottom: 120px; }
+.adm-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 16px; }
+.adm-head h1 { font-size: 26px; font-weight: 900; letter-spacing: -0.02em; }
+.adm-cur { margin: 0; font-size: 13px; color: var(--muted); }
+
+.adm-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+
+/* Карточка позиции */
+.ac { background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow), 0 0 0 1px var(--line); }
+.ac__top { display: flex; gap: 14px; padding: 16px; border-bottom: 1px solid var(--line); }
+.ac__thumb { flex: none; width: 96px; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; background: var(--soft); }
+.ac__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ac__thumb--icon { display: grid; place-items: center; color: var(--primary); }
+.ac__icon { width: 74%; height: auto; }
+.ac__text { min-width: 0; }
+.ac__eyebrow { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.ac__title { margin: 0; font-size: 18px; font-weight: 800; line-height: 1.2; }
+.ac__purpose { margin: 4px 0 0; font-size: 14px; line-height: 1.35; color: var(--muted); }
+.ac__fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 16px 16px 0; }
+.ac__field { display: block; min-width: 0; }
+.ac__status { padding: 14px 16px 16px; }
+
+.ctl__prefix { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 700; pointer-events: none; }
+
+/* Сегмент-кнопки статуса и канала */
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.seg--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.seg__btn {
+  min-height: 48px; padding: 6px 8px; border: 0; border-radius: var(--r-btn);
+  background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line);
+  font-size: 14px; font-weight: 700; line-height: 1.2; cursor: pointer;
+}
+/* Телефон: «Свободна / Занята» в ряд, «Требует подтверждения» — во всю ширину под ними */
+@media (max-width: 559px) {
+  .ac .seg { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ac .seg__btn--confirm { grid-column: 1 / -1; }
+  .lbl-full { display: none; }
+}
+@media (min-width: 560px) {
+  .lbl-short { display: none; }
+}
+.seg__btn--free[aria-pressed="true"] { background: #e6f4ea; color: #17692e; box-shadow: inset 0 0 0 2px #36a85a; }
+.seg__btn--busy[aria-pressed="true"] { background: var(--primary); color: var(--primary-ink); box-shadow: none; }
+.seg__btn--confirm[aria-pressed="true"] { background: #fff3d1; color: #6e4a00; box-shadow: inset 0 0 0 2px #e2b93b; }
+.seg__btn--on[aria-pressed="true"] { background: var(--primary); color: var(--primary-ink); box-shadow: none; }
+
+.ac.is-changed { box-shadow: var(--shadow), 0 0 0 2px var(--accent); }
+
+.adm-contact { margin-top: 16px; padding: 18px; display: grid; gap: 16px; }
+.adm-contact .eyebrow { margin: 0; }
+.adm-contact .field { display: block; }
+
+/* Кнопки: на телефоне закреплены снизу */
+.adm-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: var(--surface); box-shadow: 0 -6px 20px rgba(0, 0, 0, .1);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+}
+.adm-bar__in { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 10px; max-width: 1240px; margin: 0 auto; }
+.adm-bar .btn { min-height: 50px; padding: 0 12px; white-space: normal; }
+.adm-bar .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.toast {
+  position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 40;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px;
+  padding: 14px 16px; border-radius: 12px; background: var(--primary); color: #fff; font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .25); animation: up var(--t) both;
+}
+.toast a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-on-dark); }
+
+@media (min-width: 768px) {
+  .adm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adm-head h1 { font-size: 32px; }
+  .adm { padding-bottom: 48px; }
+  .adm-bar { position: static; margin-top: 20px; padding: 0; background: none; box-shadow: none; }
+  .adm-bar__in { display: flex; justify-content: flex-end; }
+  .adm-bar .btn { white-space: nowrap; padding: 0 22px; }
+  .toast { left: auto; right: 24px; bottom: 24px; max-width: 460px; }
+}

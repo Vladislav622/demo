@@ -239,6 +239,39 @@ test('дата: «9 октября 2026 г. (пятница)», «1 января
   assert.strictEqual(Calc.formatDate('2027-01-01'), '1 января 2027 г. (пятница)');
 });
 
+// ---------- Демо-панель: изменения владельца поверх конфига ----------
+
+const siteBase = {
+  slug: '_sample', currency: '₸', channel: 'whatsapp', whatsapp: '77000000000', telegram: '', phone: '',
+  machines: [excavator, crane], zones: [],
+};
+
+test('панель: статус и цена поверх конфига; новая цена снимает диапазон rate_to', () => {
+  const d = Calc.mergeOverrides(siteBase, { machines: { ekskavator: { status: 'busy', rate_from: 14000, min_units: 4 }, avtokran: { status: 'free' } } });
+  assert.deepStrictEqual([d.machines[0].status, d.machines[0].rate_from, d.machines[0].rate_to], ['busy', 14000, null]);
+  assert.strictEqual(d.machines[1].status, 'free');
+  assert.strictEqual(siteBase.machines[0].rate_from, 12000, 'исходные данные не меняются');
+});
+
+test('панель: та же цена — диапазон остаётся; пустая цена → «по запросу»', () => {
+  const same = Calc.mergeOverrides(siteBase, { machines: { ekskavator: { rate_from: 12000 } } });
+  assert.deepStrictEqual([same.machines[0].rate_from, same.machines[0].rate_to], [12000, 15000]);
+  const none = Calc.mergeOverrides(siteBase, { machines: { ekskavator: { rate_from: null, min_units: null } } });
+  assert.deepStrictEqual([none.machines[0].rate_from, none.machines[0].min_units], [null, null]);
+});
+
+test('панель: мусорные значения игнорируются', () => {
+  const d = Calc.mergeOverrides(siteBase, { machines: { ekskavator: { status: 'maybe', rate_from: -5, min_units: 2.5 }, nope: { status: 'busy' } }, whatsapp: '12', telegram: '@x', channel: 'telegram' });
+  assert.deepStrictEqual([d.machines[0].status, d.machines[0].rate_from, d.machines[0].min_units], ['free', 12000, 4]);
+  assert.deepStrictEqual([d.whatsapp, d.telegram, d.channel], ['77000000000', '', 'whatsapp']);
+  assert.deepStrictEqual(Calc.mergeOverrides(siteBase, null), siteBase);
+});
+
+test('панель: контакт и главный канал (Telegram — только если задан username)', () => {
+  const d = Calc.mergeOverrides(siteBase, { telegram: 'owner_name', channel: 'telegram', whatsapp: '77000000000' });
+  assert.deepStrictEqual([d.whatsapp, d.telegram, d.channel], ['77000000000', 'owner_name', 'telegram']);
+});
+
 // ---------- Запуск ----------
 
 let failed = 0;

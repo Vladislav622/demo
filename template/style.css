@@ -50,6 +50,7 @@ h1, h2, h3 { margin: 0; }
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
 
 .ui { width: 20px; height: 20px; flex: none; }
+.ico-slot { display: contents; }
 svg * { vector-effect: non-scaling-stroke; }
 
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

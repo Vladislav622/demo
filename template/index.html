@@ -9,7 +9,7 @@
 <style>{{{inline_css}}}</style>
 {{{color_style}}}
 </head>
-<body>
+<body data-page="site">
 <div class="sticky">
 <!--if:demo-->  <div class="demo-bar" role="note">Демо-концепт, не официальный сайт, удалим по первой просьбе</div>
 <!--/if:demo-->  <header class="top">
@@ -27,7 +27,7 @@
 <!--/if:schedule-->      </div>
       <div class="top__actions">
         <a class="btn btn--outline top__calc" href="#calc">{{{icon_calc}}}Рассчитать стоимость</a>
-        <a class="btn btn--accent top__channel" href="{{channel_href}}" aria-label="{{channel_label}}">{{{channel_icon}}}<span class="top__channel-text">{{channel_label}}</span></a>
+        <a class="btn btn--accent top__channel" href="{{channel_href}}" aria-label="{{channel_label}}" data-ch-href><span class="ico-slot" data-ch-icon>{{{channel_icon}}}</span><span class="top__channel-text" data-ch-label>{{channel_label}}</span></a>
       </div>
     </div>
   </header>
@@ -44,7 +44,7 @@
         <p class="hero__sub">Выберите технику, укажите адрес и получите предварительный расчёт аренды</p>
         <div class="hero__actions">
           <a class="btn btn--accent" href="#choose">Подобрать технику{{{icon_down}}}</a>
-          <a class="btn btn--ghost" href="{{channel_href}}">{{{channel_icon}}}{{channel_label}}</a>
+          <a class="btn btn--ghost" href="{{channel_href}}" data-ch-href><span class="ico-slot" data-ch-icon>{{{channel_icon}}}</span><span data-ch-label>{{channel_label}}</span></a>
         </div>
         <dl class="hero__stats">
           <div><dt>{{stat_count}}</dt><dd>{{stat_count_label}}</dd></div>
@@ -194,7 +194,7 @@
           </div>
           <p class="summary__pre" id="sum-pre" hidden>предварительно</p>
 <!--if:price_note-->          <p class="summary__note">{{price_note}}</p>
-<!--/if:price_note-->          <button type="button" class="btn btn--accent btn--block js-submit">{{{send_icon}}}{{send_label}}{{{icon_right}}}</button>
+<!--/if:price_note-->          <button type="button" class="btn btn--accent btn--block js-submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span data-ch-send>{{send_label}}</span>{{{icon_right}}}</button>
         </aside>
       </div>
     </div>
@@ -242,7 +242,7 @@
 <div class="bar" id="bar" hidden>
   <div class="bar__in">
     <p class="bar__price"><span class="js-total" id="bar-total"></span><small id="bar-pre">предварительно</small></p>
-    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit">{{{send_icon}}}<span class="bar__long">{{send_label}}</span><span class="bar__short">Отправить</span></button>
+    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span class="bar__long" data-ch-send>{{send_label}}</span><span class="bar__short">Отправить</span></button>
   </div>
 </div>
 
@@ -250,7 +250,7 @@
   <div class="sheet__backdrop" data-close></div>
   <div class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1">
     <div class="sheet__head">
-      <span class="sheet__ava">{{{send_icon}}}</span>
+      <span class="sheet__ava" data-ch-icon>{{{send_icon}}}</span>
       <div class="sheet__who">
         <p class="sheet__title" id="sheet-title">{{sheet_title}}</p>
         <p class="sheet__sub" id="sheet-sub"></p>
@@ -264,7 +264,7 @@
     <p class="sheet__hint" id="sheet-hint" role="status" hidden>Заявка скопирована — вставьте её в чат и отправьте</p>
     <div class="sheet__actions">
       <button type="button" class="btn btn--outline" id="sheet-copy">{{{icon_copy}}}<span class="js-copy-label">Скопировать заявку</span></button>
-      <button type="button" class="btn btn--channel" id="sheet-open">{{{send_icon}}}{{open_label}}{{{icon_external}}}</button>
+      <button type="button" class="btn btn--channel" id="sheet-open"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span data-ch-open>{{open_label}}</span>{{{icon_external}}}</button>
     </div>
 <!--if:is_telegram-->    <a class="sheet__share" id="sheet-share" href="#" target="_blank" rel="noopener">{{{icon_share}}}Поделиться через Telegram</a>
 <!--/if:is_telegram-->  </div>

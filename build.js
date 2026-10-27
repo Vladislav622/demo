@@ -386,11 +386,8 @@ function rateMoney(m, currency) {
   return m.rate_from == null ? null : `${fmtNum(m.rate_from)} ${currency}`;
 }
 
-// «мин. смена — 4 часа» для часов, «мин. заказ — 2 смены» для остальных единиц.
-function minText(m) {
-  if (!m.min_units) return '';
-  return `${m.unit === 'час' ? 'мин. смена' : 'мин. заказ'} — ${Calc.qty(m.min_units, m.unit)}`;
-}
+// «мин. смена — 4 часа» (неразрывный пробел перед единицей) — общая функция с сайтом.
+const minText = Calc.minText;
 
 // Иконки видов техники: иллюстрация, не фото. Единый стиль — контур 2px, скругления.
 const KIND_PATHS = {
@@ -644,6 +641,7 @@ function pageVars(config) {
 
   // Данные для расчёта (app.js). «<» экранируем, чтобы строка не закрыла <script>.
   const data = {
+    slug: config.slug,
     currency,
     channel,
     whatsapp,
@@ -654,6 +652,13 @@ function pageVars(config) {
       rate_from: m.rate_from ?? null, rate_to: m.rate_to ?? null, min_units: m.min_units ?? null,
     })),
     zones: zones.map((z) => ({ title: z.title, delivery_from: z.delivery_from ?? null, delivery_to: z.delivery_to ?? null })),
+    // Готовая разметка для перерисовки, если владелец поменял данные в демо-панели.
+    ui: {
+      status: Object.fromEntries(Object.entries(STATUS_CHIP).map(([k, [, icon, text]]) => [k, `${uiIcon(icon)}${text}`])),
+      btnSelect: `<button type="button" class="mc__btn" aria-pressed="false"><span class="mc__btn-text">Выбрать</span>${uiIcon('check')}</button>`,
+      btnBusy: '<button type="button" class="mc__btn" disabled>Сейчас занята</button>',
+      icons: { whatsapp: uiIcon('chat'), telegram: uiIcon('plane') },
+    },
   };
 
   return {
@@ -723,18 +728,74 @@ function pageVars(config) {
 
 // style.css и app.js встраиваются в index.html: страница грузится одним запросом
 // (на медленном мобильном интернете каждый лишний запрос — это ещё одна задержка сети).
-function inlineAssets() {
+// Панели владельца добавляются admin.css и admin.js.
+function inlineAssets(admin = false) {
   const read = (f) => fs.readFileSync(path.join(TEMPLATE_DIR, f), 'utf8').trim();
-  const css = read('style.css');
-  const js = read('app.js');
+  const css = admin ? `${read('style.css')}\n${read('admin.css')}` : read('style.css');
+  const js = admin ? `${read('app.js')}\n${read('admin.js')}` : read('app.js');
   if (/<\/style/i.test(css) || /<\/script/i.test(js)) throw new Error('template: в style.css или app.js встречается закрывающий тег');
   return { inline_css: `\n${css}\n`, inline_js: `\n${js}\n` };
 }
 
-function buildCompany(company, outRoot, tpl) {
+// Панель владельца (демо-режим): карточки позиций с ценой, минимальной сменой и статусом.
+function adminVars(config, site) {
+  const machines = normalizedMachines(config);
+  const media = machinesMedia(machines);
+  const currency = str(config.currency);
+  const cards = machines.map((m, i) => {
+    const md = media[i];
+    const thumb = md.type === 'icon' ? kindIcon(m.kind, 'ac__icon') : `<img src="../${esc(md.src)}" alt="" width="1200" height="750" loading="lazy">`;
+    const hour = m.unit === 'час';
+    return [
+      `      <article class="ac" data-id="${esc(m.id)}">`,
+      '        <div class="ac__top">',
+      `          <span class="ac__thumb${md.type === 'icon' ? ' ac__thumb--icon' : ''}">${thumb}</span>`,
+      '          <div class="ac__text">',
+      '            <p class="ac__eyebrow">Техника</p>',
+      `            <h2 class="ac__title">${nbspUnits(esc(m.title))}</h2>`,
+      str(m.purpose) ? `            <p class="ac__purpose">${nbspUnits(esc(str(m.purpose)))}</p>` : null,
+      '          </div>',
+      '        </div>',
+      '        <div class="ac__fields">',
+      '          <label class="ac__field">',
+      `            <span class="field__label">Цена за ${hour ? 'час' : esc(m.unit)}</span>`,
+      `            <span class="ctl"><span class="ctl__prefix">${esc(currency)}</span><input class="input" type="text" inputmode="numeric" name="rate" placeholder="по запросу" autocomplete="off"></span>`,
+      '          </label>',
+      '          <label class="ac__field">',
+      `            <span class="field__label"><span class="lbl-full">${hour ? 'Минимальная смена' : 'Минимальный заказ'}</span><span class="lbl-short">${hour ? 'Мин. смена' : 'Мин. заказ'}</span></span>`,
+      `            <span class="ctl">${uiIcon('clock', 'ui ctl__ico')}<input class="input" type="text" inputmode="numeric" name="min" placeholder="нет" autocomplete="off"></span>`,
+      `            <span class="hint">${hour ? 'часов' : esc(Calc.plural(5, m.unit))}</span>`,
+      '          </label>',
+      '        </div>',
+      '        <div class="ac__status">',
+      `          <span class="field__label" id="st-${esc(m.id)}">Статус техники</span>`,
+      `          <div class="seg" role="group" aria-labelledby="st-${esc(m.id)}">`,
+      '            <button type="button" class="seg__btn seg__btn--free" data-status="free" aria-pressed="false">Свободна</button>',
+      '            <button type="button" class="seg__btn seg__btn--busy" data-status="busy" aria-pressed="false">Занята</button>',
+      '            <button type="button" class="seg__btn seg__btn--confirm" data-status="confirm" aria-pressed="false">Требует подтверждения</button>',
+      '          </div>',
+      '        </div>',
+      '      </article>',
+    ].filter((l) => l !== null).join('\n');
+  }).join('\n');
+  return {
+    ...site,
+    admin_cards: cards,
+    currency,
+    icon_warn: uiIcon('alert'),
+    icon_wa: uiIcon('chat', 'ui ctl__ico'),
+    icon_tg: uiIcon('plane', 'ui ctl__ico'),
+    icon_ext: uiIcon('external', 'ui ui--sm'),
+  };
+}
+
+function buildCompany(company, outRoot, tpl, adminTpl) {
   const dir = path.join(outRoot, company.folder);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, { ...pageVars(company.config), ...inlineAssets() }));
+  const site = pageVars(company.config);
+  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, { ...site, ...inlineAssets() }));
+  fs.mkdirSync(path.join(dir, 'admin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets(true) }));
   const img = path.join(COMPANIES_DIR, company.folder, 'img');
   if (fs.existsSync(img)) {
     fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });
@@ -775,6 +836,7 @@ function main() {
   // Папку результата собираем заново целиком: так в ней не остаются удалённые компании.
   const outRoot = path.join(ROOT, outDir);
   const tpl = fs.readFileSync(path.join(TEMPLATE_DIR, 'index.html'), 'utf8');
+  const adminTpl = fs.readFileSync(path.join(TEMPLATE_DIR, 'admin.html'), 'utf8');
   fs.rmSync(outRoot, { recursive: true, force: true });
   fs.mkdirSync(outRoot, { recursive: true });
   fs.writeFileSync(path.join(outRoot, 'index.html'), ROOT_INDEX);
@@ -782,8 +844,8 @@ function main() {
   fs.writeFileSync(path.join(outRoot, '.nojekyll'), '');
 
   for (const company of companies) {
-    buildCompany(company, outRoot, tpl);
-    console.log(`  ✓ ${outDir}/${company.folder}/index.html`);
+    buildCompany(company, outRoot, tpl, adminTpl);
+    console.log(`  ✓ ${outDir}/${company.folder}/index.html + admin/index.html`);
   }
   console.log(`Готово: ${outDir}/ (${companies.length} компаний)`);
 }

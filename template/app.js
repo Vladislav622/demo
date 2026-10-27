@@ -159,7 +159,37 @@
     return '+' + d;
   }
 
+  // «мин. смена — 4 часа» для часов, «мин. заказ — 2 смены» для остальных единиц.
+  function minText(m) {
+    if (!m.min_units) return '';
+    return (m.unit === 'час' ? 'мин. смена' : 'мин. заказ') + ' — ' + m.min_units + '\u00a0' + plural(m.min_units, m.unit);
+  }
+
+  // Изменения владельца из демо-панели поверх данных конфига. Берутся только известные поля с проверкой.
+  // Новая цена в панели — одна («цена за час»), поэтому диапазон rate_to при её изменении снимается.
+  function mergeOverrides(base, ov) {
+    var data = JSON.parse(JSON.stringify(base));
+    if (!ov || typeof ov !== 'object') return data;
+    var byId = ov.machines || {};
+    data.machines.forEach(function (m) {
+      var o = byId[m.id];
+      if (!o || typeof o !== 'object') return;
+      if (o.status === 'free' || o.status === 'busy' || o.status === 'confirm') m.status = o.status;
+      if ('rate_from' in o && (o.rate_from === null || (typeof o.rate_from === 'number' && o.rate_from > 0)) && o.rate_from !== m.rate_from) {
+        m.rate_from = o.rate_from;
+        m.rate_to = null;
+      }
+      if ('min_units' in o && (o.min_units === null || (Number.isInteger(o.min_units) && o.min_units > 0))) m.min_units = o.min_units;
+    });
+    if (typeof ov.whatsapp === 'string' && /^\d{10,15}$/.test(ov.whatsapp)) data.whatsapp = ov.whatsapp;
+    if (typeof ov.telegram === 'string' && /^[A-Za-z0-9_]{5,32}$/.test(ov.telegram)) data.telegram = ov.telegram;
+    if (ov.channel === 'whatsapp' && data.whatsapp) data.channel = 'whatsapp';
+    if (ov.channel === 'telegram' && data.telegram) data.channel = 'telegram';
+    return data;
+  }
+
   var Calc = {
+    minText: minText, mergeOverrides: mergeOverrides,
     pluralForms: pluralForms, plural: plural, qty: qty, fmtNum: fmtNum, minUnits: minUnits,
     statusOf: statusOf, isSelectable: isSelectable, calcPrice: calcPrice, moneyRange: moneyRange, priceText: priceText,
     formatDate: formatDate, validateOrder: validateOrder, buildMessage: buildMessage, buildLink: buildLink,
@@ -169,11 +199,49 @@
   if (typeof module === 'object' && module.exports) module.exports = Calc;
   if (typeof document === 'undefined') return;
 
+  // ---------- Данные компании (data-слой) ----------
+  // Демо-режим: изменения владельца лежат в localStorage этого браузера.
+  // В рабочей версии (после первой оплаты) поменяется только этот блок: Store будет ходить на сервер.
+
+  var STORE_PREFIX = 'specsite-demo:';
+  var Store = {
+    available: function () {
+      try {
+        localStorage.setItem(STORE_PREFIX + 'test', '1');
+        localStorage.removeItem(STORE_PREFIX + 'test');
+        return true;
+      } catch (e) { return false; }
+    },
+    load: function (slug) {
+      try { var raw = localStorage.getItem(STORE_PREFIX + slug); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+    },
+    save: function (slug, ov) {
+      try { localStorage.setItem(STORE_PREFIX + slug, JSON.stringify(ov)); return true; } catch (e) { return false; }
+    },
+    clear: function (slug) {
+      try { localStorage.removeItem(STORE_PREFIX + slug); return true; } catch (e) { return false; }
+    },
+  };
+
+  function baseData() {
+    var el = document.getElementById('site-data');
+    return el ? JSON.parse(el.textContent) : null;
+  }
+
+  // Единственная точка входа к данным: конфиг (встроен при сборке) + изменения владельца.
+  function getCompanyData() {
+    var base = baseData();
+    return base ? mergeOverrides(base, Store.load(base.slug)) : null;
+  }
+
+  window.SiteData = { Calc: Calc, Store: Store, baseData: baseData, getCompanyData: getCompanyData };
+  if (document.body.getAttribute('data-page') !== 'site') return;
+
   // ---------- Страница ----------
 
-  var dataEl = document.getElementById('site-data');
-  if (!dataEl) return;
-  var data = JSON.parse(dataEl.textContent);
+  var data = getCompanyData();
+  if (!data) return;
+  var hasOverrides = Boolean(Store.load(data.slug));
 
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
@@ -252,6 +320,79 @@
     cards.forEach(function (c) { io.observe(c); });
   }
 
+  // ---------- Изменения из панели владельца: перерисовать карточки, список и канал ----------
+
+  var CH = {
+    whatsapp: { label: 'Написать в WhatsApp', send: 'Отправить заявку в WhatsApp', sheet: 'Заявка для WhatsApp', open: 'Открыть WhatsApp' },
+    telegram: { label: 'Написать в Telegram', send: 'Отправить заявку в Telegram', sheet: 'Заявка для Telegram', open: 'Открыть Telegram' },
+  };
+
+  function channelHref(d) {
+    if (d.channel === 'telegram') return 'https://t.me/' + d.telegram;
+    if (d.channel === 'whatsapp') return 'https://wa.me/' + digitsOf(d.whatsapp);
+    return 'tel:+' + digitsOf(d.phone);
+  }
+
+  function renderPrice(el, m) {
+    el.textContent = '';
+    var b = document.createElement('b');
+    var min = minText(m);
+    if (m.rate_from != null) {
+      b.textContent = fmtNum(m.rate_from) + ' ' + data.currency;
+      el.appendChild(b);
+      el.appendChild(document.createTextNode(' /' + m.unit + (min ? ' · ' + min : '')));
+    } else {
+      b.className = 'mc__ask';
+      b.textContent = 'Цена по запросу';
+      el.appendChild(b);
+      if (min) el.appendChild(document.createTextNode(' · ' + min));
+    }
+  }
+
+  function applyData(d) {
+    d.machines.forEach(function (m) {
+      var card = $('.mc[data-id="' + m.id + '"]');
+      if (!card) return;
+      card.className = 'mc mc--' + m.status;
+      card.dataset.status = m.status;
+      var chip = $('.status', card);
+      chip.className = 'status status--' + m.status;
+      chip.innerHTML = d.ui.status[m.status];
+      var btn = $('.mc__btn', card);
+      btn.outerHTML = m.status === 'busy' ? d.ui.btnBusy : d.ui.btnSelect;
+      renderPrice($('.mc__price', card), m);
+    });
+
+    // Список техники в расчёте — только свободные и «требует подтверждения».
+    machineSelect.innerHTML = '';
+    var first = document.createElement('option');
+    first.value = '';
+    first.textContent = 'Выберите технику';
+    machineSelect.appendChild(first);
+    d.machines.filter(isSelectable).forEach(function (m) {
+      var o = document.createElement('option');
+      o.value = m.id;
+      o.dataset.short = m.title;
+      o.dataset.full = m.title + ' · ' + (m.rate_from != null ? fmtNum(m.rate_from) + ' ' + d.currency + '/' + (m.unit === 'час' ? 'ч' : m.unit) : 'цена по запросу');
+      machineSelect.appendChild(o);
+    });
+
+    // Канал заявок.
+    if (CH[d.channel]) {
+      var href = channelHref(d);
+      $$('[data-ch-href]').forEach(function (a) { a.href = href; a.setAttribute('aria-label', CH[d.channel].label); });
+      $$('[data-ch-label]').forEach(function (el) { el.textContent = CH[d.channel].label; });
+      $$('[data-ch-send]').forEach(function (el) { el.textContent = CH[d.channel].send; });
+      $$('[data-ch-icon]').forEach(function (el) { el.innerHTML = d.ui.icons[d.channel]; });
+      var sh = $('#sheet');
+      sh.className = 'sheet sheet--' + d.channel;
+      $('#sheet-title').textContent = CH[d.channel].sheet;
+      $('[data-ch-open]').textContent = CH[d.channel].open;
+    }
+  }
+
+  if (hasOverrides) applyData(data);
+
   // ---------- Выбор техники: карточки ⇄ select ----------
 
   // На узком экране в списке только название — цена видна в итоговой карточке.
@@ -294,8 +435,9 @@
   }
 
   $$('.mc').forEach(function (card) {
-    if (card.dataset.status === 'busy') return;
-    card.addEventListener('click', function () { select(card.dataset.id, true); });
+    card.addEventListener('click', function () {
+      if (card.dataset.status !== 'busy') select(card.dataset.id, true);
+    });
   });
   machineSelect.addEventListener('change', function () { select(machineSelect.value, false); });
 
