@@ -1,19 +1,59 @@
 {
   "demo": true,
   "slug": "_test",
-  "name": "",
+  "name": "ТЕСТОВАЯ КОМПАНИЯ",
   "logo": "",
-  "city": "",
-  "address": "",
-  "schedule": "",
+  "city": "Тестовый город",
+  "address": "Тестовый адрес, 1",
+  "schedule": "Пн–Сб 8:00–20:00 (тест)",
   "phone": "",
   "whatsapp": "",
-  "colors": { "primary": "", "accent": "" },
+  "colors": { "primary": "#1f3a5f", "accent": "#f2a900" },
   "about": "",
-  "reviews_summary": [],
+  "reviews_summary": [
+    "Тестовый пересказ: техника приехала вовремя.",
+    "Тестовый пересказ: цену назвали сразу, без доплат на месте."
+  ],
   "source_2gis": "",
   "currency": "₸",
   "price_note": "Цена предварительная, итог подтвердит менеджер",
-  "machines": [],
-  "zones": []
+  "machines": [
+    {
+      "id": "ekskavator",
+      "title": "Экскаватор-погрузчик (тест)",
+      "photo": "",
+      "purpose": "Тестовая позиция с минимальным заказом",
+      "rate_from": 12000,
+      "rate_to": 15000,
+      "unit": "час",
+      "min_units": 4,
+      "available": true
+    },
+    {
+      "id": "avtokran",
+      "title": "Автокран 25 т (тест)",
+      "photo": "",
+      "purpose": "Тестовая позиция без цены",
+      "rate_from": null,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "available": true
+    },
+    {
+      "id": "samosval",
+      "title": "Самосвал 20 т (тест)",
+      "photo": "",
+      "purpose": "Тестовая занятая позиция",
+      "rate_from": 10000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "available": false
+    }
+  ],
+  "zones": [
+    { "title": "Город (тест)", "delivery_from": 0, "delivery_to": 0 },
+    { "title": "Пригород (тест)", "delivery_from": 5000, "delivery_to": 8000 }
+  ]
 }
