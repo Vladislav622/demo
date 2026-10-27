@@ -1,1 +1,156 @@
-/* Стили шаблона. Мобильные первыми (360–390px). Реализация — шаг 3. */
+/* Стили шаблона. Сначала мобильные (360–390px), потом десктоп. */
+
+:root {
+  /* Значения по умолчанию; build.js переопределяет из colors в конфиге. */
+  --primary: #1f2a37;
+  --primary-ink: #ffffff;
+  --accent: #f2a900;
+  --accent-ink: #111111;
+
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --text: #1a1d21;
+  --muted: #5b6470;
+  --line: #d9dde3;
+  --error: #b42318;
+  --radius: 10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  overflow-wrap: break-word;
+}
+
+img { max-width: 100%; display: block; }
+a { color: inherit; }
+
+h1, h2, h3 { line-height: 1.2; margin: 0 0 12px; }
+h2 { font-size: 24px; }
+h3 { font-size: 18px; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+/* Закреплённая шапка с плашкой демо */
+.sticky { position: sticky; top: 0; z-index: 10; }
+
+.demo-bar {
+  background: #fff4cc;
+  color: #4a3b00;
+  border-bottom: 1px solid #e8d48a;
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: center;
+  padding: 6px 16px;
+}
+
+.top { background: var(--primary); color: var(--primary-ink); }
+.top__in { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; }
+
+.brand { display: flex; align-items: center; min-height: 44px; text-decoration: none; font-weight: 700; font-size: 17px; min-width: 0; }
+.brand__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand__logo { max-height: 40px; width: auto; }
+
+/* Кнопки */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 18px;
+  border: 0; border-radius: var(--radius);
+  font: inherit; font-weight: 700; text-decoration: none; text-align: center;
+  cursor: pointer;
+}
+.btn--call { flex: none; min-height: 44px; background: var(--primary-ink); color: var(--primary); }
+.btn--accent { background: var(--accent); color: var(--accent-ink); }
+.btn--wide { width: 100%; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:focus-visible, .input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* Первый экран */
+.hero { position: relative; background: var(--primary); color: var(--primary-ink); overflow: hidden; }
+.hero__img { width: 100%; height: 220px; object-fit: cover; }
+.hero__in { padding-top: 24px; padding-bottom: 28px; }
+.hero__title { font-size: 30px; }
+.hero__sub { margin: 0 0 20px; font-size: 18px; opacity: .9; }
+
+/* Секции */
+.section { padding: 32px 0; }
+section[id] { scroll-margin-top: 110px; }
+.text { margin: 0; white-space: pre-line; }
+.note { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+
+/* Форма */
+.form { padding: 16px; display: grid; gap: 18px; }
+.field { margin: 0; padding: 0; border: 0; min-width: 0; }
+.field__label { display: block; margin-bottom: 6px; padding: 0; font-weight: 700; }
+.input {
+  width: 100%; min-height: 48px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; color: var(--text); font: inherit;
+}
+textarea.input { resize: vertical; }
+.hint { margin: 6px 0 0; color: var(--muted); }
+
+.opts { display: grid; gap: 8px; }
+.opt {
+  display: flex; align-items: flex-start; gap: 12px;
+  min-height: 56px; padding: 12px;
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.opt input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }
+.opt:has(input:checked) { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.opt__body { display: grid; gap: 2px; }
+.opt__title { font-weight: 700; }
+.opt__meta { color: var(--muted); }
+.opt--busy { cursor: not-allowed; background: #f0f1f3; color: var(--muted); }
+.busy { color: var(--muted); font-weight: 700; }
+
+.price { padding: 14px; border-radius: 8px; background: #f0f1f3; font-size: 20px; font-weight: 700; }
+
+.check { display: flex; gap: 12px; align-items: flex-start; min-height: 44px; cursor: pointer; }
+.check input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }
+
+.form-error { margin: 0; color: var(--error); font-weight: 700; }
+
+/* Парк техники */
+.park { display: grid; gap: 16px; }
+.mcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.mcard img { width: 100%; height: 200px; object-fit: cover; }
+.mcard__body { padding: 16px; }
+.mcard__body p { margin: 0 0 6px; }
+.mcard__rate { font-weight: 700; }
+.mcard--busy img { filter: grayscale(1); opacity: .7; }
+
+/* Отзывы */
+.reviews { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.reviews li { background: var(--surface); border-left: 4px solid var(--accent); border-radius: 6px; padding: 12px 16px; }
+
+/* Контакты */
+.contacts { margin: 0; display: grid; gap: 12px; }
+.contacts dt { color: var(--muted); }
+.contacts dd { margin: 0; font-weight: 700; }
+.contacts a { display: inline-block; min-height: 44px; line-height: 44px; }
+
+.footer { padding: 24px 0 32px; background: var(--primary); color: var(--primary-ink); }
+.footer p { margin: 0 0 6px; }
+
+/* Десктоп */
+@media (min-width: 768px) {
+  h2 { font-size: 28px; }
+  .hero__img { height: 380px; }
+  .hero__title { font-size: 44px; }
+  .hero__in .btn--wide { width: auto; min-width: 280px; }
+  .form { padding: 24px; grid-template-columns: 1fr 1fr; column-gap: 20px; }
+  .form > .field:first-child, .form > .price, .form > .note, .form > .check, .form > .form-error, .form > .btn,
+  .form > .field:has(textarea) { grid-column: 1 / -1; }
+  .form > .btn { max-width: 360px; }
+  .park { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .contacts { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+}

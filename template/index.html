@@ -1,1 +1,146 @@
-<!-- Шаблон страницы компании. Метки для подстановки — шаг 3 (см. PLAN.md). -->
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--if:demo--><meta name="robots" content="noindex, nofollow">
+<!--/if:demo--><title>{{page_title}}</title>
+<meta name="description" content="{{page_description}}">
+<link rel="stylesheet" href="style.css">
+{{{color_style}}}
+</head>
+<body>
+<div class="sticky">
+<!--if:demo-->  <div class="demo-bar" role="note">Демо-концепт, не официальный сайт, удалим по первой просьбе</div>
+<!--/if:demo-->  <header class="top">
+    <div class="wrap top__in">
+      <a class="brand" href="#top">{{{brand_html}}}</a>
+      <a class="btn btn--call" href="{{call_href}}">{{call_label}}</a>
+    </div>
+  </header>
+</div>
+
+<main id="top">
+  <section class="hero">
+<!--if:hero_photo-->    <img class="hero__img" src="{{hero_photo}}" alt="{{hero_alt}}">
+<!--/if:hero_photo-->    <div class="wrap hero__in">
+      <h1 class="hero__title">{{name}}</h1>
+      <p class="hero__sub">{{hero_sub}}</p>
+      <a class="btn btn--accent btn--wide" href="#calc">Рассчитать и заказать</a>
+    </div>
+  </section>
+
+  <section class="section calc" id="calc">
+    <div class="wrap">
+      <h2>Рассчитать и заказать</h2>
+      <form class="card form" id="order" novalidate>
+        <fieldset class="field">
+          <legend class="field__label">Техника</legend>
+          <div class="opts">
+{{{machine_options}}}
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label class="field__label" for="units">Объём, <span id="unit-label">{{first_unit}}</span></label>
+          <input class="input" id="units" name="units" type="number" inputmode="numeric" min="1" step="1" required>
+          <p class="hint" id="units-hint" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="date">Дата</label>
+          <input class="input" id="date" name="date" type="date" required>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="address">Адрес объекта</label>
+          <input class="input" id="address" name="address" type="text" autocomplete="street-address" required>
+        </div>
+<!--if:has_zones-->
+        <div class="field">
+          <label class="field__label" for="zone">Зона доставки</label>
+          <select class="input" id="zone" name="zone" required>
+{{{zone_options}}}
+          </select>
+        </div>
+<!--/if:has_zones-->
+        <div class="field">
+          <label class="field__label" for="client_name">Имя</label>
+          <input class="input" id="client_name" name="client_name" type="text" autocomplete="name">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="client_phone">Телефон</label>
+          <input class="input" id="client_phone" name="client_phone" type="tel" inputmode="tel" autocomplete="tel" required>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="comment">Комментарий</label>
+          <textarea class="input" id="comment" name="comment" rows="3"></textarea>
+        </div>
+
+        <div class="price" id="price" aria-live="polite" hidden></div>
+<!--if:price_note-->        <p class="note">{{price_note}}</p>
+<!--/if:price_note-->
+        <label class="check">
+          <input type="checkbox" id="consent" name="consent" required>
+          <span>Согласен на обработку персональных данных для связи по заявке</span>
+        </label>
+
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+        <button class="btn btn--accent btn--wide" type="submit" id="submit" disabled>{{submit_label}}</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="section" id="park">
+    <div class="wrap">
+      <h2>Парк техники</h2>
+      <div class="park">
+{{{machine_cards}}}
+      </div>
+    </div>
+  </section>
+<!--if:about-->
+  <section class="section" id="about">
+    <div class="wrap">
+      <h2>О компании</h2>
+      <p class="text">{{about}}</p>
+    </div>
+  </section>
+<!--/if:about--><!--if:has_reviews-->
+  <section class="section" id="reviews">
+    <div class="wrap">
+      <h2>Что говорят клиенты</h2>
+      <ul class="reviews">
+{{{review_items}}}
+      </ul>
+<!--if:source_2gis-->      <p class="note"><a href="{{source_2gis}}" rel="nofollow noopener" target="_blank">Отзывы в 2ГИС</a></p>
+<!--/if:source_2gis-->    </div>
+  </section>
+<!--/if:has_reviews-->
+  <section class="section" id="contacts">
+    <div class="wrap">
+      <h2>Контакты</h2>
+      <dl class="contacts">
+<!--if:city-->        <div><dt>Город</dt><dd>{{city}}</dd></div>
+<!--/if:city--><!--if:address-->        <div><dt>Адрес</dt><dd>{{address}}</dd></div>
+<!--/if:address--><!--if:schedule-->        <div><dt>График</dt><dd>{{schedule}}</dd></div>
+<!--/if:schedule--><!--if:phone-->        <div><dt>Телефон</dt><dd><a href="tel:{{phone_tel}}">{{phone}}</a></dd></div>
+<!--/if:phone--><!--if:whatsapp-->        <div><dt>WhatsApp</dt><dd><a href="https://wa.me/{{whatsapp}}">+{{whatsapp}}</a></dd></div>
+<!--/if:whatsapp-->      </dl>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p>{{name}}</p>
+<!--if:demo-->    <p>Демо-концепт, не официальный сайт, удалим по первой просьбе</p>
+<!--/if:demo-->  </div>
+</footer>
+
+<script id="site-data" type="application/json">{{{data_json}}}</script>
+<script src="app.js" defer></script>
+</body>
+</html>

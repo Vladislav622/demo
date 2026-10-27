@@ -3,8 +3,6 @@
 //
 // node build.js         — все компании, кроме папок на «_» → docs/ (публикация)
 // node build.js --test  — все компании, включая папки на «_» → preview/ (не публикуется)
-//
-// Шаг 2: загрузка и валидация конфигов. Генерация страниц — шаг 3.
 
 'use strict';
 
@@ -267,6 +265,186 @@ function loadCompanies(includeTest) {
   return { folders, companies, errors, warnings };
 }
 
+// ---------- Генерация страниц ----------
+
+const TEMPLATE_DIR = path.join(ROOT, 'template');
+
+const ROOT_INDEX = `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<title></title>
+</head>
+<body></body>
+</html>
+`;
+const ROBOTS_TXT = 'User-agent: *\nDisallow: /\n';
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+// 25000 → «25 000» (неразрывный пробел, чтобы число не переносилось).
+function fmtNum(n) {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function rateText(m, currency) {
+  if (m.rate_from == null) return 'стоимость назовёт менеджер';
+  return `от ${fmtNum(m.rate_from)} ${currency} / ${m.unit}`;
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+// Цвет текста поверх фона: тёмный или белый по яркости фона.
+function inkFor(hex) {
+  let h = hex.slice(1);
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.4 ? '#111111' : '#ffffff';
+}
+
+// Метки шаблона: {{key}} — текст с экранированием, {{{key}}} — готовый HTML,
+// <!--if:key-->…<!--/if:key--> — блок целиком вырезается из HTML, если значение пустое.
+function render(tpl, vars) {
+  const need = (k) => {
+    if (!(k in vars)) throw new Error(`template/index.html: метка «${k}» не задана в build.js`);
+    return vars[k];
+  };
+  const IF_RE = /<!--if:(\w+)-->([\s\S]*?)<!--\/if:\1-->/g;
+  let out = tpl;
+  while (new RegExp(IF_RE.source).test(out)) {
+    out = out.replace(IF_RE, (_, k, body) => (need(k) ? body : ''));
+  }
+  out = out.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => need(k) ?? '');
+  out = out.replace(/\{\{(\w+)\}\}/g, (_, k) => esc(need(k) ?? ''));
+  return out;
+}
+
+function pageVars(config) {
+  const name = str(config.name);
+  const city = str(config.city);
+  const phone = str(config.phone);
+  const whatsapp = str(config.whatsapp);
+  const currency = str(config.currency);
+  const machines = config.machines.map((m) => ({ ...m, available: m.available !== false }));
+  const zones = Array.isArray(config.zones) ? config.zones : [];
+  const reviews = Array.isArray(config.reviews_summary) ? config.reviews_summary.map(str).filter(Boolean) : [];
+  const colors = config.colors || {};
+
+  const colorRules = [];
+  for (const key of ['primary', 'accent']) {
+    const c = str(colors[key]);
+    if (c) colorRules.push(`--${key}:${c};--${key}-ink:${inkFor(c)}`);
+  }
+
+  const logo = str(config.logo);
+  const brandHtml = logo
+    ? `<img class="brand__logo" src="${esc(logo)}" alt="${esc(name)}">`
+    : `<span class="brand__name">${esc(name)}</span>`;
+
+  // Кнопка «Позвонить»: телефон, а если его нет — WhatsApp.
+  const callHref = phone ? `tel:+${digits(phone)}` : `https://wa.me/${whatsapp}`;
+  const callLabel = phone ? 'Позвонить' : 'WhatsApp';
+
+  const heroMachine = machines.find((m) => m.available && str(m.photo)) || machines.find((m) => str(m.photo));
+
+  const machineOptions = machines.map((m) => {
+    const busy = !m.available;
+    return [
+      `            <label class="opt${busy ? ' opt--busy' : ''}">`,
+      `              <input type="radio" name="machine" value="${esc(m.id)}"${busy ? ' disabled' : ''} required>`,
+      '              <span class="opt__body">',
+      `                <span class="opt__title">${esc(m.title)}</span>`,
+      `                <span class="opt__meta">${esc(rateText(m, currency))}</span>`,
+      busy ? '                <span class="busy">сейчас занята</span>' : null,
+      '              </span>',
+      '            </label>',
+    ].filter((l) => l !== null).join('\n');
+  }).join('\n');
+
+  const machineCards = machines.map((m) => {
+    const busy = !m.available;
+    return [
+      `        <article class="mcard${busy ? ' mcard--busy' : ''}">`,
+      str(m.photo) ? `          <img src="${esc(str(m.photo))}" alt="${esc(m.title)}" loading="lazy">` : null,
+      '          <div class="mcard__body">',
+      `            <h3>${esc(m.title)}</h3>`,
+      str(m.purpose) ? `            <p>${esc(str(m.purpose))}</p>` : null,
+      `            <p class="mcard__rate">${esc(rateText(m, currency))}</p>`,
+      m.min_units ? `            <p>минимальный заказ — ${m.min_units} ${esc(m.unit)}</p>` : null,
+      busy ? '            <p class="busy">сейчас занята</p>' : null,
+      '          </div>',
+      '        </article>',
+    ].filter((l) => l !== null).join('\n');
+  }).join('\n');
+
+  const zoneOptions = zones.map((z, i) => `            <option value="${i}">${esc(z.title)}</option>`).join('\n');
+  const reviewItems = reviews.map((r) => `        <li>${esc(r)}</li>`).join('\n');
+
+  // Данные для калькулятора (app.js). «<» экранируем, чтобы строка не закрыла <script>.
+  const data = {
+    currency,
+    whatsapp,
+    phone: phone ? digits(phone) : '',
+    machines: machines.map((m) => ({
+      id: m.id, title: m.title, unit: m.unit,
+      rate_from: m.rate_from ?? null, rate_to: m.rate_to ?? null,
+      min_units: m.min_units ?? null, available: m.available,
+    })),
+    zones: zones.map((z) => ({ title: z.title, delivery_from: z.delivery_from ?? null, delivery_to: z.delivery_to ?? null })),
+  };
+
+  return {
+    demo: config.demo === true,
+    name,
+    city,
+    address: str(config.address),
+    schedule: str(config.schedule),
+    phone,
+    phone_tel: phone ? `+${digits(phone)}` : '',
+    whatsapp,
+    about: str(config.about),
+    source_2gis: str(config.source_2gis),
+    price_note: str(config.price_note),
+    page_title: `${name} — аренда спецтехники${city ? `, ${city}` : ''}`,
+    page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Расчёт стоимости и заявка онлайн.`,
+    color_style: colorRules.length ? `<style>:root{${colorRules.join(';')}}</style>` : '',
+    brand_html: brandHtml,
+    call_href: callHref,
+    call_label: callLabel,
+    hero_photo: heroMachine ? str(heroMachine.photo) : '',
+    hero_alt: heroMachine ? heroMachine.title : '',
+    hero_sub: city ? `Аренда спецтехники · ${city}` : 'Аренда спецтехники',
+    first_unit: (machines.find((m) => m.available) || machines[0]).unit,
+    machine_options: machineOptions,
+    machine_cards: machineCards,
+    has_zones: zones.length > 0,
+    zone_options: zoneOptions,
+    has_reviews: reviews.length > 0,
+    review_items: reviewItems,
+    submit_label: whatsapp ? 'Отправить заявку в WhatsApp' : 'Позвонить и заказать',
+    data_json: JSON.stringify(data).replace(/</g, '\\u003c'),
+  };
+}
+
+function buildCompany(company, outRoot, tpl) {
+  const dir = path.join(outRoot, company.folder);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, pageVars(company.config)));
+  fs.copyFileSync(path.join(TEMPLATE_DIR, 'style.css'), path.join(dir, 'style.css'));
+  fs.copyFileSync(path.join(TEMPLATE_DIR, 'app.js'), path.join(dir, 'app.js'));
+  const img = path.join(COMPANIES_DIR, company.folder, 'img');
+  if (fs.existsSync(img)) {
+    fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });
+  }
+}
+
 function main() {
   const includeTest = process.argv.includes('--test');
   const outDir = includeTest ? 'preview' : 'docs';
@@ -287,15 +465,28 @@ function main() {
     process.exit(1);
   }
 
-  if (!folders.length) {
+  if (folders.length) {
+    console.log(`Валидация пройдена: ${companies.length} из ${folders.length} (${companies.map((c) => c.folder).join(', ')})`);
+  } else {
     console.log(`Компаний для сборки нет${includeTest ? '' : ' (тестовые папки на «_» собираются только с --test)'}.`);
-    return;
   }
 
-  console.log(`Валидация пройдена: ${companies.length} из ${folders.length} (${companies.map((c) => c.folder).join(', ')})`);
-  console.log(`Режим: ${includeTest ? '--test' : 'публикация'} → ${outDir}/ (генерация страниц — шаг 3)`);
+  // Папку результата собираем заново целиком: так в ней не остаются удалённые компании.
+  const outRoot = path.join(ROOT, outDir);
+  const tpl = fs.readFileSync(path.join(TEMPLATE_DIR, 'index.html'), 'utf8');
+  fs.rmSync(outRoot, { recursive: true, force: true });
+  fs.mkdirSync(outRoot, { recursive: true });
+  fs.writeFileSync(path.join(outRoot, 'index.html'), ROOT_INDEX);
+  fs.writeFileSync(path.join(outRoot, 'robots.txt'), ROBOTS_TXT);
+  fs.writeFileSync(path.join(outRoot, '.nojekyll'), '');
+
+  for (const company of companies) {
+    buildCompany(company, outRoot, tpl);
+    console.log(`  ✓ ${outDir}/${company.folder}/index.html`);
+  }
+  console.log(`Готово: ${outDir}/ (${companies.length} компаний)`);
 }
 
 if (require.main === module) main();
 
-module.exports = { validate, readConfig, loadCompanies };
+module.exports = { validate, readConfig, loadCompanies, render, pageVars };
