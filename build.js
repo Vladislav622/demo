@@ -472,6 +472,7 @@ function pageVars(config) {
     address: address ? [city, address].filter(Boolean).join(', ') : '',
     schedule: str(config.schedule),
     about: str(config.about),
+    price_note: str(config.price_note),
     page_title: `${name} — аренда спецтехники${city ? `, ${city}` : ''}`,
     page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Выбор техники, расчёт и заявка онлайн.`,
     color_style: colorRules.length ? `<style>:root{${colorRules.join(';')}}</style>` : '',

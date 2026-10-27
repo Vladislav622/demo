@@ -112,7 +112,8 @@
           <textarea class="input" id="comment" name="comment" rows="3" aria-label="Комментарий" hidden></textarea>
         </div>
 
-        <div class="field" data-field="consent">
+<!--if:price_note-->        <p class="note">{{price_note}}</p>
+<!--/if:price_note-->        <div class="field" data-field="consent">
           <label class="check">
             <input type="checkbox" id="consent" name="consent">
             <span>Согласен на обработку персональных данных для связи по заявке</span>
@@ -133,6 +134,8 @@
 <!--if:has_zones-->          <div><dt>Зона</dt><dd id="sum-zone">—</dd></div>
 <!--/if:has_zones-->        </dl>
         <p class="summary__price js-price" aria-live="polite"></p>
+<!--if:price_note-->        <p class="note summary__note">{{price_note}}</p>
+<!--/if:price_note-->
         <button type="button" class="btn btn--accent btn--block js-submit">{{submit_label}}</button>
       </aside>
     </div>

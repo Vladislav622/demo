@@ -128,6 +128,8 @@ h2 { font-size: 25px; }
 section[id], [data-field] { scroll-margin-top: calc(var(--sticky-h) + 12px); scroll-margin-bottom: calc(var(--bar-h) + 24px); }
 .text { margin: 0; white-space: pre-line; }
 .sub { margin: -8px 0 16px; color: var(--muted); }
+.note { margin: 0; color: var(--muted); font-size: 15px; }
+.summary__note { margin: -6px 0 14px; font-size: 14px; }
 
 /* ---------- Сетка техники ---------- */
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
