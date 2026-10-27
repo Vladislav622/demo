@@ -1,0 +1,19 @@
+{
+  "demo": true,
+  "slug": "_test",
+  "name": "",
+  "logo": "",
+  "city": "",
+  "address": "",
+  "schedule": "",
+  "phone": "",
+  "whatsapp": "",
+  "colors": { "primary": "", "accent": "" },
+  "about": "",
+  "reviews_summary": [],
+  "source_2gis": "",
+  "currency": "₸",
+  "price_note": "Цена предварительная, итог подтвердит менеджер",
+  "machines": [],
+  "zones": []
+}
