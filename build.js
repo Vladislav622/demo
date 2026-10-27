@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const Calc = require('./template/core.js');
 
 const ROOT = __dirname;
@@ -482,6 +483,75 @@ function palette(colors = {}) {
   };
 }
 
+// ---------- Общие настройки публикации (site.json) ----------
+
+// base_url нужен для превью ссылки: og:image и og:url должны быть абсолютными.
+function readSite() {
+  const file = path.join(ROOT, 'site.json');
+  if (!fs.existsSync(file)) return { base_url: '' };
+  const site = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const base = str(site.base_url).replace(/\/+$/, '');
+  if (base && !/^https:\/\/\S+$/.test(base)) throw new Error(`site.json: base_url должен начинаться с https:// (сейчас: ${show(site.base_url)})`);
+  return { ...site, base_url: base };
+}
+
+// ---------- PNG без зависимостей (иконка для «На экран Домой») ----------
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([len, body, crc]);
+}
+function encodePng(w, h, pixel) {
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const [r, g, b] = pixel(x, y);
+      const o = y * (w * 3 + 1) + 1 + x * 3;
+      raw[o] = r; raw[o + 1] = g; raw[o + 2] = b;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), pngChunk('IHDR', ihdr), pngChunk('IDAT', zlib.deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0))]);
+}
+
+// 180×180: силуэт грузовика цветом текста на фоне primary компании.
+function touchIcon(pal) {
+  const bg = hexToRgb(pal.primary);
+  const ink = hexToRgb(pal['primary-ink']);
+  const inRect = (x, y, x0, y0, x1, y1) => x >= x0 && x < x1 && y >= y0 && y < y1;
+  const inCircle = (x, y, cx, cy, r) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+  return encodePng(180, 180, (x, y) => {
+    if (inCircle(x, y, 58, 124, 7) || inCircle(x, y, 124, 124, 7)) return bg;
+    if (inRect(x, y, 116, 84, 138, 98)) return bg;
+    if (inRect(x, y, 30, 58, 104, 112) || inRect(x, y, 106, 76, 146, 116) || inRect(x, y, 30, 110, 150, 118)
+      || inCircle(x, y, 58, 124, 15) || inCircle(x, y, 124, 124, 15)) return ink;
+    return bg;
+  });
+}
+
+// SVG-значок вкладки: первая буква названия на цвете primary.
+function letterFavicon(name, pal) {
+  const letter = esc((Array.from(str(name))[0] || '•').toUpperCase());
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${pal.primary}"/>`
+    + `<text x="32" y="44" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto,sans-serif" font-size="36" font-weight="800" fill="${pal['primary-ink']}">${letter}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 // ---------- Генерация страниц ----------
 
 const ROOT_INDEX = `<!doctype html>
@@ -685,7 +755,7 @@ const CHANNEL_UI = {
   phone: { label: 'Позвонить', icon: 'phone', send: 'Позвонить', short: 'Позвонить' },
 };
 
-function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug))) {
+function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug)), site = { base_url: '' }) {
   const name = str(config.name);
   const city = str(config.city);
   const cityIn = str(config.city_in);
@@ -703,6 +773,12 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug))) {
   const hasFree = machines.some((m) => m.status !== 'busy');
 
   const pal = palette(config.colors || {});
+  const pageTitle = `Аренда спецтехники — ${name}${city ? `, ${city}` : ''}`;
+  const pageDescription = {
+    whatsapp: 'Выберите технику, узнайте предварительную стоимость и отправьте заявку в WhatsApp',
+    telegram: 'Выберите технику, узнайте предварительную стоимость и отправьте заявку в Telegram',
+    phone: 'Выберите технику, узнайте предварительную стоимость и позвоните нам',
+  }[resolveChannel(config)];
   const colorStyle = `<style>:root{${Object.entries(pal).map(([k, v]) => `--${k}:${v}`).join(';')}}</style>`;
 
   const logo = str(config.logo);
@@ -718,6 +794,23 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug))) {
   const hero = heroMedia(config, dir);
   const heroPhoto = hero.src;
   const HERO_SIZES = '(min-width: 900px) 50vw, 100vw';
+  // Превью ссылки (WhatsApp, Telegram): абсолютные адреса из site.json; без base_url — только текстовые теги.
+  const pageUrl = site.base_url ? `${site.base_url}/${config.slug}/` : '';
+  const ogImage = pageUrl && hero.type !== 'icon' ? `${pageUrl}${hero.src}` : '';
+  const headMeta = [
+    `<meta property="og:type" content="website">`,
+    `<meta property="og:locale" content="ru_RU">`,
+    `<meta property="og:site_name" content="${esc(name)}">`,
+    `<meta property="og:title" content="${esc(pageTitle)}">`,
+    `<meta property="og:description" content="${esc(pageDescription)}">`,
+    pageUrl ? `<meta property="og:url" content="${esc(pageUrl)}">` : null,
+    ogImage ? `<meta property="og:image" content="${esc(ogImage)}">` : null,
+    ogImage ? `<meta property="og:image:width" content="${hero.w}">\n<meta property="og:image:height" content="${hero.h}">` : null,
+    `<meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:title" content="${esc(pageTitle)}">`,
+    `<meta name="twitter:description" content="${esc(pageDescription)}">`,
+    ogImage ? `<meta name="twitter:image" content="${esc(ogImage)}">` : null,
+  ].filter(Boolean).join('\n');
   const heroTitle = str(config.hero_title)
     ? accentTitle(str(config.hero_title))
     : `Аренда спецтехники${cityIn ? ` <span class="accent">${esc(cityIn)}</span>` : ''}`;
@@ -788,8 +881,11 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug))) {
     price_note: str(config.price_note),
     park_note: str(config.park_note),
     delivery_time_text: str(config.delivery_time_text),
-    page_title: `${name} — аренда спецтехники${city ? `, ${city}` : ''}`,
-    page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Выбор техники, расчёт и заявка онлайн.`,
+    page_title: pageTitle,
+    page_description: pageDescription,
+    theme_color: pal.primary,
+    favicon: logo || letterFavicon(name, pal),
+    head_meta: headMeta,
     color_style: colorStyle,
     logo_html: logoHtml,
     channel_href: channelHref,
@@ -934,11 +1030,12 @@ function adminVars(config, site) {
   };
 }
 
-function buildCompany(company, outRoot, tpl, adminTpl) {
+function buildCompany(company, outRoot, tpl, adminTpl, siteCfg = { base_url: '' }) {
   const dir = path.join(outRoot, company.folder);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
-  const site = { ...pageVars(company.config, company.dir), dir: company.dir };
+  const site = { ...pageVars(company.config, company.dir, siteCfg), dir: company.dir };
+  fs.writeFileSync(path.join(dir, 'apple-touch-icon.png'), touchIcon(palette(company.config.colors || {})));
   fs.writeFileSync(path.join(dir, 'index.html'), minHtml(render(tpl, { ...site, ...inlineAssets('site') }, 'template/index.html')));
   fs.mkdirSync(path.join(dir, 'admin'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'admin', 'index.html'), minHtml(render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets('admin') }, 'template/admin.html')));
@@ -983,6 +1080,10 @@ function main() {
   const outRoot = path.join(ROOT, outDir);
   const tpl = fs.readFileSync(path.join(TEMPLATE_DIR, 'index.html'), 'utf8');
   const adminTpl = fs.readFileSync(path.join(TEMPLATE_DIR, 'admin.html'), 'utf8');
+  const siteCfg = readSite();
+  if (!siteCfg.base_url && companies.length) {
+    console.warn('Предупреждение: site.json: base_url пуст — og:url и og:image (превью ссылки) пропущены. Укажите адрес публикации, например https://<user>.github.io/<repo>');
+  }
   fs.rmSync(outRoot, { recursive: true, force: true });
   fs.mkdirSync(outRoot, { recursive: true });
   fs.writeFileSync(path.join(outRoot, 'index.html'), ROOT_INDEX);
@@ -990,7 +1091,7 @@ function main() {
   fs.writeFileSync(path.join(outRoot, '.nojekyll'), '');
 
   for (const company of companies) {
-    buildCompany(company, outRoot, tpl, adminTpl);
+    buildCompany(company, outRoot, tpl, adminTpl, siteCfg);
     console.log(`  ✓ ${outDir}/${company.folder}/index.html + admin/index.html`);
   }
   console.log(`Готово: ${outDir}/ (${companies.length} компаний)`);
@@ -998,4 +1099,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel, palette, contrast, esc };
+module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel, palette, contrast, esc, readSite };

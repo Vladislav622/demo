@@ -155,6 +155,13 @@ async function main() {
     check('плашка демо видна и ≤ 36px', demo.bar > 0 && demo.bar <= 36, `${demo.bar}px`);
     check('meta robots noindex', demo.robots === 'noindex, nofollow', demo.robots);
   }
+  const meta = await js(`(async () => { const q = (s) => document.querySelector(s);
+    const load = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i.naturalWidth); i.onerror = () => ok(0); i.src = src; });
+    return { title: document.title, desc: q('meta[name=description]')?.content, og: q('meta[property="og:title"]')?.content, locale: q('meta[property="og:locale"]')?.content,
+      theme: q('meta[name=theme-color]')?.content, icon: await load(q('link[rel=icon]').href), touch: await load(q('link[rel=apple-touch-icon]').href) }; })()`);
+  check('превью и значки: title, description, og:title, ru_RU, theme-color, favicon, apple-touch-icon 180',
+    /^Аренда спецтехники — /.test(meta.title) && meta.desc && meta.og === meta.title && meta.locale === 'ru_RU' && /^#[0-9a-f]{6}$/.test(meta.theme) && meta.icon > 0 && meta.touch === 180,
+    `«${meta.title}», theme ${meta.theme}, значок ${meta.icon}px, touch ${meta.touch}px`);
   const hero = await js(`(() => { const t = document.querySelector('.hero__title'); const lh = parseFloat(getComputedStyle(t).lineHeight);
     const btns = [...document.querySelectorAll('.hero__actions .btn')].map((e) => e.getBoundingClientRect());
     return { lines: Math.round(t.getBoundingClientRect().height / lh), size: getComputedStyle(t).fontSize,

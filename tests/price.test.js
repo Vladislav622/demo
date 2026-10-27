@@ -382,6 +382,22 @@ test('фото компании > 300 КБ или шире 1600 px — пред�
   assert.ok(warnings.some((w) => /2000×1000/.test(w) && /squoosh\.app/.test(w) && /1600/.test(w)), warnings.join('\n'));
 });
 
+test('превью ссылки: с base_url — og:url, og:image и twitter:image абсолютные; без него — пропущены', () => {
+  const path = require('path');
+  const cfg = JSON.parse(require('fs').readFileSync(path.join(__dirname, '..', 'companies', '_sample', 'config.json'), 'utf8'));
+  cfg.whatsapp = WA;
+  const withBase = pageVars(cfg, path.join(__dirname, '..', 'companies', '_sample'), { base_url: 'https://vladislav622.github.io/demo' });
+  const m = withBase.head_meta;
+  assert.ok(m.includes('<meta property="og:url" content="https://vladislav622.github.io/demo/_sample/">'), m);
+  assert.ok(/<meta property="og:image" content="https:\/\/vladislav622\.github\.io\/demo\/_sample\/img\/stock\/hero\.jpg">/.test(m), m);
+  assert.ok(m.includes('summary_large_image') && m.includes('og:locale" content="ru_RU') && m.includes('og:type" content="website'));
+  for (const [, url] of m.matchAll(/content="(\/[^"]*|img\/[^"]*)"/g)) assert.fail(`относительный адрес в превью: ${url}`);
+  assert.strictEqual(withBase.page_title, 'Аренда спецтехники — Ваша компания, Алматы');
+  assert.strictEqual(withBase.page_description, 'Выберите технику, узнайте предварительную стоимость и отправьте заявку в WhatsApp');
+  const noBase = pageVars(cfg, path.join(__dirname, '..', 'companies', '_sample'), { base_url: '' }).head_meta;
+  assert.ok(!noBase.includes('og:url') && !noBase.includes('og:image') && noBase.includes('og:title'));
+});
+
 // ---------- Запуск ----------
 
 let failed = 0;
