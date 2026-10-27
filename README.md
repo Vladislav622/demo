@@ -22,7 +22,8 @@
 node build.js           # публикация: компании без «_» → docs/<slug>/
 node build.js --test    # предпросмотр: все, включая «_» → preview/<slug>/
 ```
-Номер WhatsApp для `_test` берётся из переменной `TEST_WA` (PowerShell: `$env:TEST_WA="77011234567"; node build.js --test`).
+Контакты тестовых папок берутся из переменных окружения: `TEST_WA` (WhatsApp), `TEST_TG` (Telegram username), `TEST_CHANNEL` (`whatsapp` / `telegram` — главный канал)
+(PowerShell: `$env:TEST_WA="77011234567"; node build.js --test`).
 
 ## Публикация
 GitHub Pages из папки `/docs` ветки `main`. `docs/` коммитится в репозиторий. `preview/` не коммитится.

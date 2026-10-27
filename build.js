@@ -337,9 +337,15 @@ function loadCompanies(includeTest) {
       errors.push(...readErrors);
       continue;
     }
-    // Номер WhatsApp тестовой компании не храним в репозитории — берём из TEST_WA.
+    // Контакты тестовых компаний не храним в репозитории — берём из TEST_WA / TEST_TG; TEST_CHANNEL — главный канал.
     if (folder.startsWith('_') && isEmpty(config.whatsapp) && process.env.TEST_WA) {
       config.whatsapp = process.env.TEST_WA.trim();
+    }
+    if (folder.startsWith('_') && isEmpty(config.telegram) && process.env.TEST_TG) {
+      config.telegram = process.env.TEST_TG.trim().replace(/^@/, '');
+    }
+    if (folder.startsWith('_') && process.env.TEST_CHANNEL) {
+      config.channel = process.env.TEST_CHANNEL.trim();
     }
     const result = validate(config, rel, folder);
     errors.push(...result.errors);
@@ -426,6 +432,11 @@ const UI = {
   park: '<path d="M3 20V9l9-5 9 5v11"/><path d="M7 20v-7h10v7M7 16h10"/>',
   operator: '<path d="M5 15a7 7 0 0 1 14 0"/><path d="M3 15h18v2.5H3z"/><path d="M12 8v3"/>',
   shield: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4.5"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  share: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/>',
+  checks: '<path d="M2 12.5l4 4 8-9"/><path d="M10 15.5l1 1 8-9"/>',
 };
 
 function uiIcon(name, cls = 'ui') {
@@ -654,6 +665,15 @@ function pageVars(config) {
     channel_icon: uiIcon(CH.icon),
     send_label: CH.send,
     send_icon: uiIcon(CH.icon),
+    sheet_class: `sheet--${channel}`,
+    sheet_title: channel === 'telegram' ? 'Заявка для Telegram' : 'Заявка для WhatsApp',
+    open_label: channel === 'telegram' ? 'Открыть Telegram' : 'Открыть WhatsApp',
+    is_telegram: channel === 'telegram',
+    icon_close: uiIcon('close'),
+    icon_copy: uiIcon('copy'),
+    icon_external: uiIcon('external', 'ui ui--sm'),
+    icon_share: uiIcon('share'),
+    icon_checks: uiIcon('checks', 'ui ui--sm'),
     icon_pin: uiIcon('pin'),
     icon_calc: uiIcon('calc'),
     icon_down: uiIcon('arrowDown'),

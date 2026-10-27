@@ -246,6 +246,30 @@
   </div>
 </div>
 
+<div class="sheet {{sheet_class}}" id="sheet" hidden>
+  <div class="sheet__backdrop" data-close></div>
+  <div class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet__head">
+      <span class="sheet__ava">{{{send_icon}}}</span>
+      <div class="sheet__who">
+        <p class="sheet__title" id="sheet-title">{{sheet_title}}</p>
+        <p class="sheet__sub" id="sheet-sub"></p>
+      </div>
+      <button type="button" class="sheet__close" data-close aria-label="Закрыть">{{{icon_close}}}</button>
+    </div>
+    <div class="sheet__chat">
+      <div class="bubble"><p class="bubble__text" id="sheet-text"></p><span class="bubble__time">сейчас {{{icon_checks}}}</span></div>
+    </div>
+    <textarea class="sheet__area" id="sheet-area" tabindex="-1" aria-hidden="true" readonly hidden></textarea>
+    <p class="sheet__hint" id="sheet-hint" role="status" hidden>Заявка скопирована — вставьте её в чат и отправьте</p>
+    <div class="sheet__actions">
+      <button type="button" class="btn btn--outline" id="sheet-copy">{{{icon_copy}}}<span class="js-copy-label">Скопировать заявку</span></button>
+      <button type="button" class="btn btn--channel" id="sheet-open">{{{send_icon}}}{{open_label}}{{{icon_external}}}</button>
+    </div>
+<!--if:is_telegram-->    <a class="sheet__share" id="sheet-share" href="#" target="_blank" rel="noopener">{{{icon_share}}}Поделиться через Telegram</a>
+<!--/if:is_telegram-->  </div>
+</div>
+
 <script id="site-data" type="application/json">{{{data_json}}}</script>
 <script>{{{inline_js}}}</script>
 </body>

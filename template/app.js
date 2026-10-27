@@ -90,12 +90,13 @@
   }
 
   var WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+  var MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
-  // '2026-10-28' → '28.10.2026 (среда)'
+  // '2026-10-09' → '9 октября 2026 г. (пятница)'
   function formatDate(iso) {
     var p = iso.split('-');
     var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
-    return p[2] + '.' + p[1] + '.' + p[0] + ' (' + WEEKDAYS[d.getDay()] + ')';
+    return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear() + ' г. (' + WEEKDAYS[d.getDay()] + ')';
   }
 
   function digitsOf(s) {
@@ -116,38 +117,53 @@
     return null;
   }
 
-  // Текст заявки. Пустые необязательные строки не выводятся.
+  // Текст заявки (порядок как в референсе). Строки без значения не выводятся.
   function buildMessage(o) {
     var p = calcPrice(o.machine, o.units, o.zone);
     var total = priceText(p, o.currency, ' ');
     var opt = function (v) { return String(v || '').trim(); };
-    var lines = ['Здравствуйте! Заявка с сайта.', 'Техника: ' + o.machine.title];
+    var lines = ['Здравствуйте! Хочу заказать спецтехнику.', '', 'Техника: ' + o.machine.title];
     if (statusOf(o.machine) === 'confirm') lines.push('Наличие: требует подтверждения');
-    lines.push('Объём: ' + qty(p.units, o.machine.unit));
+    lines.push('Адрес: ' + opt(o.address));
     lines.push('Дата: ' + formatDate(o.date));
     if (opt(o.time)) lines.push('Время подачи: ' + opt(o.time));
-    lines.push('Адрес: ' + opt(o.address));
-    if (o.zone) lines.push('Зона: ' + o.zone.title);
-    if (total) lines.push('Ориентир: ' + total + ' (предварительно)');
+    lines.push('Продолжительность: ' + qty(p.units, o.machine.unit));
+    if (o.zone) lines.push('Зона доставки: ' + o.zone.title);
+    if (total) lines.push('Предварительная стоимость: ' + total);
     if (opt(o.name)) lines.push('Имя: ' + opt(o.name));
     if (opt(o.phone)) lines.push('Телефон: ' + opt(o.phone));
     if (opt(o.comment)) lines.push('Комментарий: ' + opt(o.comment));
     return lines.join('\n');
   }
 
-  // Ссылка для отправки по главному каналу: WhatsApp — с готовым текстом;
-  // Telegram — чат с владельцем (окно с текстом и копированием — шаг 7); иначе звонок.
+  // Ссылка «Открыть …» по главному каналу.
+  // WhatsApp: wa.me/<номер>?text=… — чат с готовым текстом.
+  // Telegram: t.me/<username>?text=… — по core.telegram.org/api/links («Public username links»)
+  //   text подставляется в поле ввода; на всякий случай заявка ещё и копируется в буфер.
   function buildLink(text, c) {
     if (c.channel === 'whatsapp' && c.whatsapp) return 'https://wa.me/' + digitsOf(c.whatsapp) + '?text=' + encodeURIComponent(text);
-    if (c.channel === 'telegram' && c.telegram) return 'https://t.me/' + c.telegram;
+    if (c.channel === 'telegram' && c.telegram) return 'https://t.me/' + c.telegram + '?text=' + encodeURIComponent(text);
     if (c.phone) return 'tel:+' + digitsOf(c.phone);
     return '';
+  }
+
+  // «Поделиться через Telegram»: выбрать любой чат и отправить ссылку на страницу с текстом заявки.
+  function buildShareLink(pageUrl, text) {
+    return 'https://t.me/share/url?url=' + encodeURIComponent(pageUrl) + '&text=' + encodeURIComponent(text);
+  }
+
+  // Номер для шапки окна: 77000000000 → «+7 700 000 00 00».
+  function formatPhone(raw) {
+    var d = digitsOf(raw);
+    if (d.length === 11) return '+' + d[0] + ' ' + d.slice(1, 4) + ' ' + d.slice(4, 7) + ' ' + d.slice(7, 9) + ' ' + d.slice(9);
+    return '+' + d;
   }
 
   var Calc = {
     pluralForms: pluralForms, plural: plural, qty: qty, fmtNum: fmtNum, minUnits: minUnits,
     statusOf: statusOf, isSelectable: isSelectable, calcPrice: calcPrice, moneyRange: moneyRange, priceText: priceText,
     formatDate: formatDate, validateOrder: validateOrder, buildMessage: buildMessage, buildLink: buildLink,
+    buildShareLink: buildShareLink, formatPhone: formatPhone,
   };
 
   if (typeof module === 'object' && module.exports) module.exports = Calc;
@@ -460,10 +476,108 @@
         if (control) control.focus({ preventScroll: true });
         return;
       }
-      // Переход в той же вкладке: window.open на телефоне блокируется.
-      var link = buildLink(buildMessage(o), data);
-      if (link) window.location.href = link;
+      // Без мессенджеров — сразу звонок; иначе окно с готовой заявкой.
+      if (data.channel === 'phone') {
+        var tel = buildLink('', data);
+        if (tel) window.location.href = tel;
+        return;
+      }
+      openSheet(buildMessage(o), btn);
     });
+  });
+
+  // ---------- Окно «Заявка для WhatsApp / Telegram» ----------
+
+  var sheet = $('#sheet');
+  var sheetPanel = $('.sheet__panel', sheet);
+  var sheetText = $('#sheet-text');
+  var sheetArea = $('#sheet-area');
+  var sheetHint = $('#sheet-hint');
+  var copyBtn = $('#sheet-copy');
+  var copyLabel = $('.js-copy-label', copyBtn);
+  var openBtn = $('#sheet-open');
+  var shareLink = $('#sheet-share');
+  var sheetOpener = null;
+  var currentText = '';
+  var copiedTimer = 0;
+
+  if (data.channel === 'telegram') $('#sheet-sub').textContent = '@' + data.telegram;
+  if (data.channel === 'whatsapp') $('#sheet-sub').textContent = formatPhone(data.whatsapp);
+
+  function focusables() {
+    return $$('button, a[href], textarea:not([tabindex="-1"])', sheetPanel).filter(function (el) { return el.getClientRects().length; });
+  }
+
+  function openSheet(text, opener) {
+    currentText = text;
+    sheetOpener = opener;
+    sheetText.textContent = text;
+    sheetArea.value = text;
+    sheetHint.hidden = true;
+    if (shareLink) shareLink.href = buildShareLink(location.href.split('#')[0], text);
+    sheet.hidden = false;
+    document.body.classList.add('sheet-open');
+    copyBtn.focus();
+  }
+
+  function closeSheet() {
+    if (sheet.hidden) return;
+    sheet.hidden = true;
+    document.body.classList.remove('sheet-open');
+    if (sheetOpener) sheetOpener.focus({ preventScroll: true });
+  }
+
+  // Копирование: Clipboard API, запасной вариант — выделить текст в скрытом поле и execCommand.
+  function copyText() {
+    var done = function () {
+      copyLabel.textContent = 'Скопировано ✓';
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(function () { copyLabel.textContent = 'Скопировать заявку'; }, 2000);
+      return true;
+    };
+    var fallback = function () {
+      sheetArea.hidden = false;
+      sheetArea.focus();
+      sheetArea.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      sheetArea.hidden = true;
+      copyBtn.focus();
+      return ok ? done() : false;
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(currentText).then(done, fallback);
+    }
+    return Promise.resolve(fallback());
+  }
+
+  copyBtn.addEventListener('click', copyText);
+
+  openBtn.addEventListener('click', function () {
+    var link = buildLink(currentText, data);
+    if (data.channel === 'telegram') {
+      // Перед открытием Telegram заявка уже в буфере — её можно просто вставить в чат.
+      copyText();
+      sheetHint.hidden = false;
+      setTimeout(function () { window.location.href = link; }, 600);
+      return;
+    }
+    // Переход в той же вкладке: window.open на телефоне блокируется.
+    window.location.href = link;
+  });
+
+  $$('[data-close]', sheet).forEach(function (el) { el.addEventListener('click', closeSheet); });
+
+  document.addEventListener('keydown', function (e) {
+    if (sheet.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
+    if (e.key !== 'Tab') return;
+    // Фокус не выходит из окна.
+    var list = focusables();
+    var first = list[0];
+    var last = list[list.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 
   renderUnits();

@@ -167,6 +167,30 @@ async function main() {
   await b.send('Runtime.enable');
   await b.send('Fetch.enable', { patterns: [{ urlPattern: 'https://wa.me/*' }, { urlPattern: 'https://api.whatsapp.com/*' }, { urlPattern: 'https://t.me/*' }] });
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await b.send('Browser.grantPermissions', { origin: new URL(url).origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] }).catch(() => {});
+  const key = async (k, code) => {
+    for (const type of ['keyDown', 'keyUp']) await b.send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: k === 'Escape' ? 27 : 9 });
+    await sleep(150);
+  };
+  const SHEET = `(() => { const sh = document.getElementById('sheet'), p = sh.querySelector('.sheet__panel'), r = p.getBoundingClientRect();
+    return { open: !sh.hidden, title: document.getElementById('sheet-title').textContent, sub: document.getElementById('sheet-sub').textContent,
+      text: document.getElementById('sheet-text').textContent, w: Math.round(r.width), left: Math.round(r.left), bottom: Math.round(r.bottom), top: Math.round(r.top),
+      vw: innerWidth, vh: innerHeight, focusInside: p.contains(document.activeElement), active: document.activeElement.id || document.activeElement.className,
+      share: document.getElementById('sheet-share')?.getAttribute('href') || '', hint: !document.getElementById('sheet-hint').hidden,
+      copy: document.querySelector('.js-copy-label').textContent }; })()`;
+  // Заполнить заявку: первая свободная позиция, адрес, завтра, 09:00, +2 к минимуму, зона «Пригород…», комментарий, согласие.
+  const fillOrder = async () => {
+    await tap(FIRST_FREE);
+    await type('#address', 'Тестовый адрес, 5');
+    await tap('[data-date="tomorrow"]');
+    await setValue('#time', '09:00');
+    await tap('#units-plus'); await tap('#units-plus');
+    if (await js("Boolean(document.getElementById('zone'))")) {
+      await setValue('#zone', await js("([...document.querySelectorAll('#zone option')].find((o) => /Пригород/.test(o.textContent)) || [...document.querySelectorAll('#zone option')].pop()).value"));
+    }
+    await type('#comment', 'нужен ковш 0,5');
+    await tap('#consent');
+  };
 
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail });
@@ -323,7 +347,35 @@ async function main() {
   const bar2 = await js(BAR_LINES);
   check('панель 360 с доставкой: сумма в одну строку', bar2.lines === 1 && bar2.fits, `«${bar2.text}» — строк: ${bar2.lines}`);
   await tap('#submit');
-  await sleep(500);
+  await sleep(300);
+  const sh1 = await js(SHEET);
+  check('360: «Отправить» открывает окно заявки снизу во всю ширину (bottom sheet)', sh1.open && sh1.w === sh1.vw && sh1.bottom === sh1.vh,
+    `«${sh1.title}» ${sh1.sub}; ширина ${sh1.w} из ${sh1.vw}, низ ${sh1.bottom} = ${sh1.vh}`);
+  check('360: фокус внутри окна', sh1.focusInside, `на ${sh1.active}`);
+  for (let i = 0; i < 6; i++) await key('Tab', 'Tab');
+  const trap = await js(SHEET);
+  check('360: Tab не выводит фокус из окна', trap.focusInside, `после 6×Tab на ${trap.active}`);
+  shots.push(await shot('360-sheet', false));
+  await key('Escape', 'Escape');
+  const afterEsc = await js("({ open: !document.getElementById('sheet').hidden, active: document.activeElement.id })");
+  check('360: Esc закрывает окно, фокус возвращается на кнопку', !afterEsc.open && afterEsc.active === 'submit', JSON.stringify(afterEsc));
+  await tap('#submit');
+  await tap('#sheet-copy');
+  await sleep(200);
+  const copied = await js(`(async () => { const label = document.querySelector('.js-copy-label').textContent;
+    let clip = ''; try { clip = await navigator.clipboard.readText(); } catch (e) { clip = 'нет доступа: ' + e.name; }
+    // Windows отдаёт буфер с переводами строк \\r\\n — сравниваем без них.
+    return { label, same: clip.replace(/\\r\\n/g, '\\n') === document.getElementById('sheet-text').textContent, clip: clip.slice(0, 40) }; })()`);
+  check('360: «Скопировать заявку» → «Скопировано ✓», в буфере текст заявки', copied.label === 'Скопировано ✓' && copied.same, JSON.stringify(copied));
+  const sheetText360 = sh1.text;
+  const linksBefore = waLinks.length;
+  await tap('#sheet-open');
+  await sleep(1200);
+  const opened = await js(SHEET).catch(() => ({ hint: false }));
+  check(`360: «${(await js("document.getElementById('sheet-open').textContent.trim()").catch(() => 'Открыть'))}» ведёт в мессенджер`, waLinks.length > linksBefore,
+    waLinks[waLinks.length - 1] ? waLinks[waLinks.length - 1].slice(0, 60) + '…' : 'перехода не было');
+  const openedHint = opened.hint;
+  const shareHref = sh1.share;
 
   // ---------- 1280 ----------
   await open(1280, 800, false);
@@ -356,6 +408,22 @@ async function main() {
   const small1280 = await js(SMALL);
   check('кнопки, чипы и поля ≥ 44px (1280)', small1280.length === 0, JSON.stringify(small1280));
 
+  await open(1280, 800, false);
+  await fillOrder();
+  await tap('.summary .js-submit');
+  await sleep(300);
+  const sh2 = await js(SHEET);
+  check('1280: окно заявки по центру, ширина 480px', sh2.open && sh2.w === 480 && Math.abs(sh2.left - (sh2.vw - 480) / 2) <= 1,
+    `ширина ${sh2.w}, слева ${sh2.left}, сверху ${sh2.top}`);
+  shots.push(await shot('1280-sheet', false));
+  for (const type of ['mousePressed', 'mouseReleased']) await b.send('Input.dispatchMouseEvent', { type, x: 20, y: 400, button: 'left', clickCount: 1 });
+  await sleep(200);
+  const afterBackdrop = await js("({ open: !document.getElementById('sheet').hidden, active: document.activeElement.className })");
+  check('1280: тап по фону закрывает окно, фокус на кнопке', !afterBackdrop.open && /js-submit/.test(afterBackdrop.active), JSON.stringify(afterBackdrop));
+  await tap('.summary .js-submit');
+  await tap('.sheet__close');
+  check('1280: крестик закрывает окно', await js("document.getElementById('sheet').hidden"), '');
+
   check('нет ошибок JS', errors.length === 0, errors.join('; '));
 
   // ---------- Slow 3G, без фото, без кэша ----------
@@ -384,12 +452,15 @@ async function main() {
   checks.forEach((c) => console.log(`  ${c.ok ? 'да ' : 'НЕТ'}  ${c.name}${c.detail ? ` — ${c.detail}` : ''}`));
   console.log(`После заполнения (360): панель «${price360}»; ${summary360.join('; ')}`);
   if (waLinks.length) {
-    console.log(`Переход по «Отправить» (перехвачен, не отправлен): ${waLinks[0]}`);
-    const text = new URL(waLinks[0]).searchParams.get('text');
-    if (text) console.log(`Текст заявки:\n${text.split('\n').map((l) => `  | ${l}`).join('\n')}`);
+    console.log(`Переход по «Открыть …» (перехвачен, не отправлен): ${waLinks[waLinks.length - 1]}`);
+    const text = new URL(waLinks[waLinks.length - 1]).searchParams.get('text');
+    if (text) console.log(`Текст заявки из ссылки:\n${text.split('\n').map((l) => `  | ${l}`).join('\n')}`);
+    console.log(`Текст в ссылке совпадает с окном: ${text === sheetText360 ? 'да' : 'НЕТ'}`);
   } else {
-    console.log('Переход по «Отправить»: не было');
+    console.log('Переход по «Открыть …»: не было');
   }
+  if (openedHint) console.log('Подсказка «Заявка скопирована — вставьте её в чат и отправьте»: показана');
+  if (shareHref) console.log(`«Поделиться через Telegram»: ${decodeURIComponent(shareHref).slice(0, 80)}…`);
   process.exit(checks.every((c) => c.ok) ? 0 : 1);
 }
 
