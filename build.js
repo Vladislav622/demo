@@ -577,19 +577,41 @@ function stockFiles(kind) {
   return [`${k}.jpg`, `${k}-2.jpg`, `${k}-3.jpg`].filter((f) => fs.existsSync(path.join(STOCK_DIR, f)));
 }
 
+// Общее фото «для примера»: путь на странице, уменьшенная копия 640 px (если есть) и размеры.
+function stockMedia(file) {
+  const small = file.replace(/\.jpg$/, '-640.jpg');
+  const size = imageSize(path.join(STOCK_DIR, file)) || { w: 1200, h: 750 };
+  return { type: 'stock', src: `img/stock/${file}`, small: fs.existsSync(path.join(STOCK_DIR, small)) ? `img/stock/${small}` : '', w: size.w, h: size.h };
+}
+
+// Своё фото компании: размеры из файла (для width/height без «прыжков» вёрстки).
+function photoMedia(src, dir) {
+  const size = dir && fs.existsSync(path.join(dir, src)) ? imageSize(path.join(dir, src)) : null;
+  return { type: 'photo', src, small: '', w: size ? size.w : 1200, h: size ? size.h : 750 };
+}
+
 // Картинки всех позиций: своё фото → общее «для примера» → SVG-иконка.
 // Общие фото одного вида раздаются по очереди, чтобы соседние карточки не повторялись.
-function machinesMedia(machines) {
+function machinesMedia(machines, dir) {
   const used = {};
   return machines.map((m) => {
     const photo = str(m.photo);
-    if (photo) return { type: 'photo', src: photo };
+    if (photo) return photoMedia(photo, dir);
     const files = stockFiles(m.kind);
     if (!files.length) return { type: 'icon' };
     const n = used[m.kind] || 0;
     used[m.kind] = n + 1;
-    return { type: 'stock', src: `img/stock/${files[n % files.length]}` };
+    return stockMedia(files[n % files.length]);
   });
+}
+
+// <img>: ленивые карточки с srcset (640 px на телефоне), размеры заданы — вёрстка не прыгает.
+const CARD_SIZES = '(min-width: 1100px) 290px, (min-width: 560px) 50vw, 85vw';
+function imgTag(md, { prefix = '', sizes = CARD_SIZES, eager = false } = {}) {
+  const src = `${prefix}${md.small || md.src}`;
+  const srcset = md.small ? ` srcset="${esc(prefix + md.small)} 640w, ${esc(prefix + md.src)} ${md.w}w" sizes="${sizes}"` : '';
+  const load = eager ? ' fetchpriority="high"' : ' loading="lazy"';
+  return `<img src="${esc(src)}"${srcset} alt="" width="${md.w}" height="${md.h}"${load} decoding="async">`;
 }
 
 const STATUS_CHIP = {
@@ -603,9 +625,7 @@ function machineCard(m, currency, media) {
   const busy = m.status === 'busy';
   const rate = Calc.rateText(m, currency);
   const min = Calc.minText(m);
-  const mediaHtml = media.type === 'icon'
-    ? kindIcon(m.kind, 'mc__icon')
-    : `<img src="${esc(media.src)}" alt="" width="1200" height="750" loading="lazy" decoding="async">`;
+  const mediaHtml = media.type === 'icon' ? kindIcon(m.kind, 'mc__icon') : imgTag(media);
   return [
     `        <article class="mc mc--${m.status}" data-id="${esc(m.id)}" data-status="${m.status}">`,
     `          <div class="mc__media${media.type === 'icon' ? ' mc__media--icon' : ''}">${mediaHtml}`,
@@ -642,21 +662,21 @@ function normalizedMachines(config) {
 
 // Фото первого экрана: hero_photo → своё фото первой свободной позиции →
 // общий широкий кадр assets/stock/hero.jpg (не тот же, что в карточках) → общее фото по виду → иконка.
-function heroMedia(config) {
+function heroMedia(config, dir) {
   const machines = normalizedMachines(config);
-  if (str(config.hero_photo)) return { type: 'photo', src: str(config.hero_photo) };
+  if (str(config.hero_photo)) return photoMedia(str(config.hero_photo), dir);
   const withPhoto = machines.find((m) => m.status !== 'busy' && str(m.photo));
-  if (withPhoto) return { type: 'photo', src: str(withPhoto.photo) };
-  if (fs.existsSync(path.join(STOCK_DIR, 'hero.jpg'))) return { type: 'stock', src: 'img/stock/hero.jpg' };
+  if (withPhoto) return photoMedia(str(withPhoto.photo), dir);
+  if (fs.existsSync(path.join(STOCK_DIR, 'hero.jpg'))) return stockMedia('hero.jpg');
   const firstFree = machines.find((m) => m.status !== 'busy') || machines[0];
   const files = stockFiles(firstFree.kind);
-  return files.length ? { type: 'stock', src: `img/stock/${files[0]}` } : { type: 'icon', src: '' };
+  return files.length ? stockMedia(files[0]) : { type: 'icon', src: '' };
 }
 
 // Какие общие фото нужны компании (копируются в img/stock/).
 function neededStock(config) {
   const all = [...machinesMedia(normalizedMachines(config)), heroMedia(config)];
-  return [...new Set(all.filter((x) => x.type === 'stock').map((x) => x.src))];
+  return [...new Set(all.filter((x) => x.type === 'stock').flatMap((x) => [x.src, x.small].filter(Boolean)))];
 }
 
 const CHANNEL_UI = {
@@ -665,7 +685,7 @@ const CHANNEL_UI = {
   phone: { label: 'Позвонить', icon: 'phone', send: 'Позвонить', short: 'Позвонить' },
 };
 
-function pageVars(config) {
+function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug))) {
   const name = str(config.name);
   const city = str(config.city);
   const cityIn = str(config.city_in);
@@ -695,8 +715,9 @@ function pageVars(config) {
 
   // Первый экран: hero_photo → фото первой свободной позиции → общее фото «для примера» → иконка.
   const firstFree = machines.find((m) => m.status !== 'busy') || machines[0];
-  const hero = heroMedia(config);
+  const hero = heroMedia(config, dir);
   const heroPhoto = hero.src;
+  const HERO_SIZES = '(min-width: 900px) 50vw, 100vw';
   const heroTitle = str(config.hero_title)
     ? accentTitle(str(config.hero_title))
     : `Аренда спецтехники${cityIn ? ` <span class="accent">${esc(cityIn)}</span>` : ''}`;
@@ -806,12 +827,15 @@ function pageVars(config) {
     hero_stock: hero.type === 'stock',
     hero_class: heroPhoto ? 'hero--photo' : 'hero--icon',
     hero_photo: heroPhoto,
+    hero_img: hero.type === 'icon' ? '' : imgTag(hero, { sizes: HERO_SIZES, eager: true }),
+    hero_preload: hero.type === 'icon' ? ''
+      : `<link rel="preload" as="image" href="${esc(hero.small || hero.src)}"${hero.small ? ` imagesrcset="${esc(hero.small)} 640w, ${esc(hero.src)} ${hero.w}w" imagesizes="${HERO_SIZES}"` : ''} fetchpriority="high">`,
     hero_icon: heroPhoto ? '' : kindIcon(firstFree.kind, 'hero__icon'),
     stat_count: String(count),
     stat_count_label: `${Calc.pluralForms(count, ['единица', 'единицы', 'единиц'])} техники`,
     has_features: features.length > 0,
     feature_items: featureItems,
-    machine_cards: (() => { const media = machinesMedia(machines); return machines.map((m, i) => machineCard(m, currency, media[i])).join('\n'); })(),
+    machine_cards: (() => { const media = machinesMedia(machines, dir); return machines.map((m, i) => machineCard(m, currency, media[i])).join('\n'); })(),
     machine_count: String(count),
     many_cards: count > 1,
     grid_class: count === 1 ? ' grid--single' : '',
@@ -830,10 +854,22 @@ function pageVars(config) {
 // CSS и JS встраиваются в страницу: она грузится одним запросом
 // (на медленном мобильном интернете каждый лишний запрос — это ещё одна задержка сети).
 // Сайт: base.css + site.css, core.js + site.js. Панель: base.css + admin.css, core.js + admin.js.
+// Простая минификация: CSS — без комментариев и лишних пробелов; JS — без строк-комментариев и отступов
+// (переводы строк сохраняются — без риска для кода).
+function minCss(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').replace(/\s*([{}:;,>])\s*/g, '$1').replace(/;}/g, '}').trim();
+}
+function minJs(js) {
+  return js.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//')).join('\n');
+}
+function minHtml(html) {
+  return html.split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
+}
+
 function inlineAssets(kind) {
   const read = (f) => fs.readFileSync(path.join(TEMPLATE_DIR, f), 'utf8').trim();
-  const css = `${read('base.css')}\n${read(`${kind}.css`)}`;
-  const js = `${read('core.js')}\n${read(`${kind}.js`)}`;
+  const css = minCss(`${read('base.css')}\n${read(`${kind}.css`)}`);
+  const js = minJs(`${read('core.js')}\n${read(`${kind}.js`)}`);
   if (/<\/style/i.test(css) || /<\/script/i.test(js)) throw new Error('template: в CSS или JS встречается закрывающий тег');
   return { inline_css: `\n${css}\n`, inline_js: `\n${js}\n` };
 }
@@ -841,11 +877,11 @@ function inlineAssets(kind) {
 // Панель владельца (демо-режим): карточки позиций с ценой, минимальной сменой и статусом.
 function adminVars(config, site) {
   const machines = normalizedMachines(config);
-  const media = machinesMedia(machines);
+  const media = machinesMedia(machines, site.dir);
   const currency = str(config.currency);
   const cards = machines.map((m, i) => {
     const md = media[i];
-    const thumb = md.type === 'icon' ? kindIcon(m.kind, 'ac__icon') : `<img src="../${esc(md.src)}" alt="" width="1200" height="750" loading="lazy" decoding="async">`;
+    const thumb = md.type === 'icon' ? kindIcon(m.kind, 'ac__icon') : `<img src="../${esc(md.small || md.src)}" alt="" width="${md.w}" height="${md.h}" loading="lazy" decoding="async">`;
     const hour = m.unit === 'час';
     const per = hour ? 'час' : esc(m.unit);
     const range = m.rate_to != null;
@@ -902,10 +938,10 @@ function buildCompany(company, outRoot, tpl, adminTpl) {
   const dir = path.join(outRoot, company.folder);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
-  const site = pageVars(company.config);
-  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, { ...site, ...inlineAssets('site') }, 'template/index.html'));
+  const site = { ...pageVars(company.config, company.dir), dir: company.dir };
+  fs.writeFileSync(path.join(dir, 'index.html'), minHtml(render(tpl, { ...site, ...inlineAssets('site') }, 'template/index.html')));
   fs.mkdirSync(path.join(dir, 'admin'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets('admin') }, 'template/admin.html'));
+  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), minHtml(render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets('admin') }, 'template/admin.html')));
   const img = path.join(company.dir, 'img');
   if (fs.existsSync(img)) {
     fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });

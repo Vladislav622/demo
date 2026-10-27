@@ -6,6 +6,7 @@
 <!--if:demo--><meta name="robots" content="noindex, nofollow">
 <!--/if:demo--><title>{{page_title}}</title>
 <meta name="description" content="{{page_description}}">
+{{{hero_preload}}}
 <style>{{{inline_css}}}</style>
 {{{color_style}}}
 </head>
@@ -36,7 +37,7 @@
 <main id="top">
   <section class="hero-wrap">
     <div class="hero {{hero_class}}">
-<!--if:has_hero_photo-->      <div class="hero__media"><img src="{{hero_photo}}" alt="" width="1200" height="750"><!--if:hero_stock--><span class="mc__stock">Фото для примера</span><!--/if:hero_stock--></div>
+<!--if:has_hero_photo-->      <div class="hero__media">{{{hero_img}}}<!--if:hero_stock--><span class="mc__stock">Фото для примера</span><!--/if:hero_stock--></div>
 <!--/if:has_hero_photo-->      <div class="hero__text">
         {{{hero_icon}}}
 <!--if:hero_chip-->        <span class="hero__chip">{{{icon_pin}}}{{hero_chip}}</span>

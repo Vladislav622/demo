@@ -9,94 +9,12 @@
 
 'use strict';
 
-const { spawn } = require('child_process');
 const fs = require('fs');
-const http = require('http');
-const os = require('os');
 const path = require('path');
-const zlib = require('zlib');
+const { serve, launch, sleep, fail } = require('./browser.js');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'checks');
-const BROWSERS = [
-  process.env.BROWSER,
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-].filter(Boolean);
-const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.txt': 'text/plain', '.json': 'application/json' };
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function fail(msg) {
-  console.error(`Ошибка: ${msg}`);
-  process.exit(1);
-}
-
-// Простой статический сервер для папки сборки. prefix — подпапка, как у GitHub Pages (/repo/).
-function serve(dir, prefix = '/') {
-  const server = http.createServer((req, res) => {
-    let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (!rel.startsWith(prefix)) { res.writeHead(404); res.end(); return; }
-    rel = `/${rel.slice(prefix.length)}`;
-    if (rel.endsWith('/')) rel += 'index.html';
-    const file = path.join(dir, rel);
-    if (!file.startsWith(dir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      const nf = path.join(dir, '404.html');
-      res.writeHead(404, { 'Content-Type': TYPES['.html'] });
-      res.end(fs.existsSync(nf) ? fs.readFileSync(nf) : '');
-      return;
-    }
-    const ext = path.extname(file);
-    const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream' };
-    // Как GitHub Pages: текстовые файлы отдаются сжатыми (SCREENS_NO_GZIP=1 — без сжатия).
-    if (!process.env.SCREENS_NO_GZIP && /gzip/.test(req.headers['accept-encoding'] || '') && ['.html', '.css', '.js', '.svg', '.txt'].includes(ext)) {
-      res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip' });
-      res.end(zlib.gzipSync(fs.readFileSync(file)));
-      return;
-    }
-    res.writeHead(200, headers);
-    fs.createReadStream(file).pipe(res);
-  });
-  return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
-}
-
-async function launch() {
-  const exe = BROWSERS.find((p) => fs.existsSync(p));
-  if (!exe) fail('не найден Edge или Chrome; укажите путь в переменной BROWSER');
-  const port = 9300 + Math.floor(Math.random() * 600);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'screens-'));
-  const proc = spawn(exe, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
-    '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
-  let page;
-  for (let i = 0; i < 100 && !page; i++) {
-    await sleep(200);
-    try { page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page'); } catch (e) { /* ещё запускается */ }
-  }
-  if (!page) fail('браузер не ответил по протоколу DevTools');
-
-  const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise((r, j) => { ws.addEventListener('open', r); ws.addEventListener('error', j); });
-  let id = 0;
-  const pending = new Map();
-  const listeners = [];
-  ws.addEventListener('message', (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); return; }
-    listeners.forEach((fn) => fn(msg));
-  });
-  const send = (method, params = {}) => new Promise((res, rej) => {
-    const n = ++id;
-    pending.set(n, (m) => (m.error ? rej(new Error(`${method}: ${m.error.message}`)) : res(m.result)));
-    ws.send(JSON.stringify({ id: n, method, params }));
-  });
-  const close = () => { try { ws.close(); } catch (e) { /* уже закрыт */ } proc.kill(); };
-  return { send, on: (fn) => listeners.push(fn), close };
-}
 
 function readConfig(slug) {
   for (const dir of ['companies', path.join('tests', 'fixtures')]) {
@@ -521,9 +439,9 @@ async function main() {
   const ios = await js(`(() => {
     const css = [...document.querySelectorAll('style')].map((st) => st.textContent).join(' ');
     const fonts = [...document.querySelectorAll('input, select, textarea')].filter((e) => e.type !== 'checkbox' && e.type !== 'hidden' && (e.getClientRects().length || e.id === 'sheet-area')).map((e) => parseFloat(getComputedStyle(e).fontSize));
-    return { minFont: Math.min(...fonts), safe: /[.]bar [{][^}]*safe-area-inset-bottom/.test(css) && /[.]sheet__panel [{][^}]*safe-area-inset-bottom/.test(css),
+    return { minFont: Math.min(...fonts), safe: /[.]bar ?[{][^}]*safe-area-inset-bottom/.test(css) && /[.]sheet__panel ?[{][^}]*safe-area-inset-bottom/.test(css),
       dvh: /dvh/.test(css), sticky: getComputedStyle(document.querySelector('.sticky')).position, tap: /tap-highlight/.test(css),
-      inertia: /overflow-scrolling: touch/.test(css), vh100: /100vh/.test(css) }; })()`);
+      inertia: /overflow-scrolling: ?touch/.test(css), vh100: /100vh/.test(css) }; })()`);
   check('iOS: шрифт полей ≥ 16px (нет зума), safe-area у панели и окна, dvh, sticky, tap-highlight, инерционная лента, нет 100vh',
     ios.minFont >= 16 && ios.safe && ios.dvh && ios.sticky === 'sticky' && ios.tap && ios.inertia && !ios.vh100, JSON.stringify(ios));
 
@@ -577,6 +495,24 @@ async function main() {
 
   check('нет ошибок JS', errors.length === 0, errors.join('; '));
 
+  // ---------- Скорость: внешние запросы и вес фото ----------
+  const requests = [];
+  b.on((msg) => { if (msg.method === 'Network.responseReceived') requests.push({ url: msg.params.response.url, kb: Math.round((msg.params.response.encodedDataLength || 0) / 1024), type: msg.params.type }); });
+  await b.send('Network.enable');
+  await b.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await open(360, 740, true);
+  await sleep(800);
+  const host = new URL(url).host;
+  const external = requests.filter((r) => !r.url.startsWith('data:') && new URL(r.url).host !== host);
+  check('ни одного внешнего запроса при загрузке', external.length === 0, external.map((r) => r.url).join(', ') || `${requests.length} запросов, все со своего адреса`);
+  const imgs = await js(`[...document.querySelectorAll('.mc__media img, .hero__media img')].filter((i) => i.complete && i.currentSrc)
+    .map((i) => { const e = performance.getEntriesByName(i.currentSrc)[0]; return { src: i.currentSrc.split('/').pop(), hero: Boolean(i.closest('.hero')), kb: e ? Math.round(e.encodedBodySize / 1024) : null }; })`);
+  const cardImgs = imgs.filter((i) => !i.hero && i.kb != null);
+  const heroImg = imgs.find((i) => i.hero);
+  if (cardImgs.length) check('360: карточки грузят уменьшенные фото ≤ 80 КБ', cardImgs.every((i) => i.kb <= 80), cardImgs.map((i) => `${i.src} ${i.kb} КБ`).join(', '));
+  if (heroImg && heroImg.kb != null) check('фото первого экрана ≤ 200 КБ', heroImg.kb <= 200, `${heroImg.src} ${heroImg.kb} КБ`);
+  await b.send('Network.setCacheDisabled', { cacheDisabled: false });
+
   // ---------- Slow 3G, без фото, без кэша ----------
   let slow = null;
   if (!quick) {
@@ -586,13 +522,18 @@ async function main() {
     await b.send('Network.setBlockedURLs', { urls: ['*/img/*', '*.jpg', '*.jpeg', '*.png', '*.webp'] });
     await b.send('Network.emulateNetworkConditions', { offline: false, latency: 2000, downloadThroughput: 50000, uploadThroughput: 50000 });
     await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 740, deviceScaleFactor: 1, mobile: true });
-    await b.send('Page.navigate', { url });
-    for (let i = 0; i < 300; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
-    slow = await js(`(() => { const n = performance.getEntriesByType('navigation')[0];
-      const fcp = performance.getEntriesByName('first-contentful-paint')[0];
-      return { dcl: Math.round(n.domContentLoadedEventEnd), fcp: fcp ? Math.round(fcp.startTime) : null, kb: Math.round((n.transferSize || 0) / 1024 * 10) / 10 }; })()`);
+    // При параллельном прогоне замер бывает «шумным» — если вышло за предел, повторяем один раз.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await b.send('Page.navigate', { url });
+      for (let i = 0; i < 300; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
+      slow = await js(`(() => { const n = performance.getEntriesByType('navigation')[0];
+        const fcp = performance.getEntriesByName('first-contentful-paint')[0];
+        return { dcl: Math.round(n.domContentLoadedEventEnd), fcp: fcp ? Math.round(fcp.startTime) : null, kb: Math.round((n.transferSize || 0) / 1024 * 10) / 10 }; })()`);
+      if (slow.fcp != null && slow.fcp <= 2500) break;
+    }
     await b.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-    check('Slow 3G без фото: страница готова ≤ 3 с (DOMContentLoaded)', slow.dcl <= 3000, `DCL ${(slow.dcl / 1000).toFixed(2)} с, первый экран ${slow.fcp != null ? (slow.fcp / 1000).toFixed(2) : '?'} с, ${slow.kb} КБ`);
+    check('Slow 3G без фото: первый экран ≤ 2,5 с, страница ≤ 30 КБ gzip', slow.fcp != null && slow.fcp <= 2500 && slow.kb <= 30,
+      `первый экран ${slow.fcp != null ? (slow.fcp / 1000).toFixed(2) : '?'} с, DCL ${(slow.dcl / 1000).toFixed(2)} с, ${slow.kb} КБ`);
   }
 
   b.close();

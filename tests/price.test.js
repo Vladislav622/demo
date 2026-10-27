@@ -365,6 +365,23 @@ test('палитра: контраст текста ≥ 4,5 для тёмног�
   }
 });
 
+test('фото компании > 300 КБ или шире 1600 px — предупреждение с советом, как сжать', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { validate } = require('../build.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photo-'));
+  // Заголовок PNG 2000×1000 (для проверки размера достаточно IHDR).
+  const png = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
+  png.writeUInt32BE(13, 8); png.write('IHDR', 12); png.writeUInt32BE(2000, 16); png.writeUInt32BE(1000, 20);
+  fs.writeFileSync(path.join(dir, 'wide.png'), png);
+  const cfg = { demo: true, slug: 'x', name: 'X', whatsapp: WA, currency: '₸', logo: 'wide.png', machines: [{ id: 'a', title: 'A', unit: 'час' }] };
+  const { errors, warnings } = validate(cfg, 'x/config.json', 'x', dir);
+  assert.strictEqual(errors.length, 0, errors.join('\n'));
+  assert.ok(warnings.some((w) => /2000×1000/.test(w) && /squoosh\.app/.test(w) && /1600/.test(w)), warnings.join('\n'));
+});
+
 // ---------- Запуск ----------
 
 let failed = 0;
