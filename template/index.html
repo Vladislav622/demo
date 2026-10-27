@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!--if:demo--><meta name="robots" content="noindex, nofollow">
 <!--/if:demo--><title>{{page_title}}</title>
 <meta name="description" content="{{page_description}}">
@@ -15,90 +15,126 @@
 <!--/if:demo-->  <header class="top">
     <div class="wrap top__in">
       <a class="brand" href="#top">{{{brand_html}}}</a>
-      <a class="btn btn--call" href="{{call_href}}">{{call_label}}</a>
+      <a class="pill-btn" href="{{call_href}}">{{{call_icon}}}<span>{{call_label}}</span></a>
     </div>
   </header>
 </div>
 
 <main id="top">
-  <section class="hero">
-<!--if:hero_photo-->    <img class="hero__img" src="{{hero_photo}}" alt="{{hero_alt}}">
-<!--/if:hero_photo-->    <div class="wrap hero__in">
-      <h1 class="hero__title">{{name}}</h1>
-      <p class="hero__sub">{{hero_sub}}</p>
-      <a class="btn btn--accent btn--wide" href="#calc">Рассчитать и заказать</a>
+  <section class="hero {{hero_class}}">
+    {{{hero_media}}}
+    <div class="wrap hero__in">
+      <h1 class="hero__title">{{hero_title}}</h1>
+      <p class="hero__name">{{hero_sub}}</p>
+      <div class="hero__actions">
+        <a class="btn btn--accent" href="#choose">Выбрать технику</a>
+        <a class="btn btn--ghost" href="{{call_href}}">{{{call_icon}}}{{call_label}}</a>
+      </div>
     </div>
   </section>
 
-  <section class="section calc" id="calc">
-    <div class="wrap">
-      <h2>Рассчитать и заказать</h2>
-      <form class="card form" id="order" novalidate>
-        <fieldset class="field">
-          <legend class="field__label">Техника</legend>
-          <div class="opts">
-{{{machine_options}}}
-          </div>
-        </fieldset>
+  <section class="how" aria-label="Как заказать">
+    <ol class="wrap how__list">
+      <li class="how__step">{{{step_icon_1}}}<span>Выберите технику</span></li>
+      <li class="how__step">{{{step_icon_2}}}<span>Время и адрес</span></li>
+      <li class="how__step">{{{step_icon_3}}}<span>{{step_3_label}}</span></li>
+    </ol>
+  </section>
 
-        <div class="field">
-          <label class="field__label" for="units">Объём, <span id="unit-label">{{first_unit}}</span></label>
-          <input class="input" id="units" name="units" type="number" inputmode="numeric" min="1" step="1" required>
+  <section class="section" id="choose">
+    <div class="wrap">
+      <h2>Выберите технику</h2>
+      <p class="sub">Нажмите на технику, чтобы рассчитать цену</p>
+      <div class="grid">
+{{{machine_cards}}}
+      </div>
+    </div>
+  </section>
+
+  <section class="section order" id="order" hidden>
+    <div class="wrap order__grid">
+      <form class="card form" id="order-form" novalidate>
+        <div class="picked">
+          <span class="picked__media js-picked-media"></span>
+          <span class="picked__title js-picked-title"></span>
+          <a class="picked__change" href="#choose">изменить</a>
+        </div>
+
+        <div class="field" data-field="units">
+          <span class="field__label" id="units-label">Объём</span>
+          <div class="stepper" role="group" aria-labelledby="units-label">
+            <button type="button" class="stepper__btn" id="units-minus" aria-label="Меньше">−</button>
+            <output class="stepper__val" id="units-out" aria-live="polite"></output>
+            <button type="button" class="stepper__btn" id="units-plus" aria-label="Больше">+</button>
+          </div>
+          <div class="chips" id="units-chips"></div>
           <p class="hint" id="units-hint" hidden></p>
         </div>
 
-        <div class="field">
-          <label class="field__label" for="date">Дата</label>
-          <input class="input" id="date" name="date" type="date" required>
-        </div>
-
-        <div class="field">
-          <label class="field__label" for="address">Адрес объекта</label>
-          <input class="input" id="address" name="address" type="text" autocomplete="street-address" required>
+        <div class="field" data-field="date">
+          <span class="field__label">Дата</span>
+          <div class="chips">
+            <button type="button" class="chip" data-date="today" aria-pressed="false">Сегодня</button>
+            <button type="button" class="chip" data-date="tomorrow" aria-pressed="false">Завтра</button>
+            <button type="button" class="chip" data-date="other" aria-pressed="false">Другая дата</button>
+          </div>
+          <input class="input" id="date" name="date" type="date" aria-label="Дата" hidden>
+          <p class="err" hidden></p>
         </div>
 <!--if:has_zones-->
-        <div class="field">
-          <label class="field__label" for="zone">Зона доставки</label>
-          <select class="input" id="zone" name="zone" required>
-{{{zone_options}}}
-          </select>
+        <div class="field" data-field="zone">
+          <span class="field__label">Зона доставки</span>
+          <div class="chips">
+{{{zone_chips}}}
+          </div>
+          <p class="err" hidden></p>
         </div>
 <!--/if:has_zones-->
-        <div class="field">
+        <div class="field" data-field="address">
+          <label class="field__label" for="address">Адрес</label>
+          <input class="input" id="address" name="address" type="text" autocomplete="street-address" placeholder="Улица, дом или ориентир">
+          <p class="err" hidden></p>
+        </div>
+
+        <div class="field" data-field="name">
           <label class="field__label" for="client_name">Имя</label>
           <input class="input" id="client_name" name="client_name" type="text" autocomplete="name">
         </div>
 
-        <div class="field">
+        <div class="field" data-field="phone">
           <label class="field__label" for="client_phone">Телефон</label>
-          <input class="input" id="client_phone" name="client_phone" type="tel" inputmode="tel" autocomplete="tel" required>
+          <input class="input" id="client_phone" name="client_phone" type="tel" inputmode="tel" autocomplete="tel">
+          <p class="err" hidden></p>
         </div>
 
-        <div class="field">
-          <label class="field__label" for="comment">Комментарий</label>
-          <textarea class="input" id="comment" name="comment" rows="3"></textarea>
+        <div class="field" data-field="comment">
+          <button type="button" class="link-btn" id="comment-toggle" aria-expanded="false" aria-controls="comment">+ Добавить комментарий</button>
+          <textarea class="input" id="comment" name="comment" rows="3" aria-label="Комментарий" hidden></textarea>
         </div>
 
-        <div class="price" id="price" aria-live="polite" hidden></div>
-<!--if:price_note-->        <p class="note">{{price_note}}</p>
-<!--/if:price_note-->
-        <label class="check">
-          <input type="checkbox" id="consent" name="consent" required>
-          <span>Согласен на обработку персональных данных для связи по заявке</span>
-        </label>
-
-        <p class="form-error" id="form-error" role="alert" hidden></p>
-        <button class="btn btn--accent btn--wide" type="submit" id="submit" disabled>{{submit_label}}</button>
+        <div class="field" data-field="consent">
+          <label class="check">
+            <input type="checkbox" id="consent" name="consent">
+            <span>Согласен на обработку персональных данных для связи по заявке</span>
+          </label>
+          <p class="err" hidden></p>
+        </div>
       </form>
-    </div>
-  </section>
 
-  <section class="section" id="park">
-    <div class="wrap">
-      <h2>Парк техники</h2>
-      <div class="park">
-{{{machine_cards}}}
-      </div>
+      <aside class="card summary" aria-label="Ваш заказ">
+        <h3 class="summary__h">Ваш заказ</h3>
+        <div class="summary__machine">
+          <span class="summary__media js-picked-media"></span>
+          <span class="summary__title js-picked-title"></span>
+        </div>
+        <dl class="summary__list">
+          <div><dt>Объём</dt><dd id="sum-units">—</dd></div>
+          <div><dt>Дата</dt><dd id="sum-date">—</dd></div>
+<!--if:has_zones-->          <div><dt>Зона</dt><dd id="sum-zone">—</dd></div>
+<!--/if:has_zones-->        </dl>
+        <p class="summary__price js-price" aria-live="polite"></p>
+        <button type="button" class="btn btn--accent btn--block js-submit">{{submit_label}}</button>
+      </aside>
     </div>
   </section>
 <!--if:about-->
@@ -112,23 +148,22 @@
   <section class="section" id="reviews">
     <div class="wrap">
       <h2>Что говорят клиенты</h2>
-      <ul class="reviews">
+    </div>
+    <ul class="reviews">
 {{{review_items}}}
-      </ul>
-<!--if:source_2gis-->      <p class="note"><a href="{{source_2gis}}" rel="nofollow noopener" target="_blank">Отзывы в 2ГИС</a></p>
-<!--/if:source_2gis-->    </div>
+    </ul>
   </section>
 <!--/if:has_reviews-->
   <section class="section" id="contacts">
     <div class="wrap">
       <h2>Контакты</h2>
       <dl class="contacts">
-<!--if:city-->        <div><dt>Город</dt><dd>{{city}}</dd></div>
-<!--/if:city--><!--if:address-->        <div><dt>Адрес</dt><dd>{{address}}</dd></div>
+<!--if:address-->        <div><dt>Адрес</dt><dd>{{address}}</dd></div>
 <!--/if:address--><!--if:schedule-->        <div><dt>График</dt><dd>{{schedule}}</dd></div>
-<!--/if:schedule--><!--if:phone-->        <div><dt>Телефон</dt><dd><a href="tel:{{phone_tel}}">{{phone}}</a></dd></div>
-<!--/if:phone--><!--if:whatsapp-->        <div><dt>WhatsApp</dt><dd><a href="https://wa.me/{{whatsapp}}">+{{whatsapp}}</a></dd></div>
-<!--/if:whatsapp-->      </dl>
+<!--/if:schedule-->      </dl>
+      <div class="contact-btns">
+{{{contact_buttons}}}
+      </div>
     </div>
   </section>
 </main>
@@ -139,6 +174,13 @@
 <!--if:demo-->    <p>Демо-концепт, не официальный сайт, удалим по первой просьбе</p>
 <!--/if:demo-->  </div>
 </footer>
+
+<div class="bar" id="bar" hidden>
+  <div class="bar__in">
+    <p class="bar__price js-price" id="bar-price" aria-live="polite"></p>
+    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit">{{submit_label}}</button>
+  </div>
+</div>
 
 <script id="site-data" type="application/json">{{{data_json}}}</script>
 <script src="app.js" defer></script>

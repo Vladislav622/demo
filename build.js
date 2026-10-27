@@ -8,17 +8,21 @@
 
 const fs = require('fs');
 const path = require('path');
+const Calc = require('./template/app.js');
 
 const ROOT = __dirname;
 const COMPANIES_DIR = path.join(ROOT, 'companies');
 
 const KNOWN_KEYS = [
-  'demo', 'slug', 'name', 'logo', 'city', 'address', 'schedule', 'phone', 'whatsapp',
+  'demo', 'slug', 'name', 'logo', 'hero_photo', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp',
   'colors', 'about', 'reviews_summary', 'source_2gis', 'currency', 'price_note', 'machines', 'zones',
 ];
-const MACHINE_KEYS = ['id', 'title', 'photo', 'purpose', 'rate_from', 'rate_to', 'unit', 'min_units', 'available'];
+const MACHINE_KEYS = ['id', 'title', 'kind', 'photo', 'purpose', 'rate_from', 'rate_to', 'unit', 'min_units', 'available'];
 const ZONE_KEYS = ['title', 'delivery_from', 'delivery_to'];
-const OPTIONAL_STRINGS = ['logo', 'city', 'address', 'schedule', 'phone', 'whatsapp', 'about', 'source_2gis', 'price_note'];
+const OPTIONAL_STRINGS = ['logo', 'hero_photo', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp', 'about', 'source_2gis', 'price_note'];
+
+const KINDS = ['excavator', 'crane', 'dump_truck', 'loader', 'manipulator', 'aerial_platform', 'bulldozer', 'roller', 'tractor', 'other'];
+const PHOTO_WARN_BYTES = 300 * 1024;
 
 const SLUG_RE = /^_?[a-z0-9][a-z0-9-]*$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -115,8 +119,25 @@ function validate(config, rel, folder) {
     }
   }
 
-  if (typeof config.logo === 'string' && config.logo.trim() && !fs.existsSync(path.join(dir, config.logo))) {
-    err('logo', `файл ${show(config.logo)} не найден в companies/${folder}/`);
+  // Файл картинки должен существовать; тяжёлые фото — предупреждение.
+  const checkImage = (field, value) => {
+    if (typeof value !== 'string' || !value.trim()) return;
+    const file = path.join(dir, value.trim());
+    if (!fs.existsSync(file)) {
+      err(field, `файл ${show(value)} не найден в companies/${folder}/`);
+    } else if (fs.statSync(file).size > PHOTO_WARN_BYTES) {
+      warn(field, `${show(value)} — ${Math.round(fs.statSync(file).size / 1024)} КБ, сожмите до ~200 КБ, ширина 1200px`);
+    }
+  };
+  checkImage('logo', config.logo);
+  checkImage('hero_photo', config.hero_photo);
+
+  if (typeof config.city_in === 'string' && config.city_in.trim() && !/^во? \S/.test(config.city_in.trim())) {
+    err('city_in', `город с предлогом, начинается с «в » или «во », например "в Караганде" (сейчас: ${show(config.city_in)})`);
+  }
+
+  if (typeof config.source_2gis === 'string' && config.source_2gis.trim() && !/^https:\/\/\S+$/.test(config.source_2gis.trim())) {
+    err('source_2gis', `ссылка должна начинаться с https:// (сейчас: ${show(config.source_2gis)})`);
   }
 
   if (config.colors !== undefined) {
@@ -171,8 +192,9 @@ function validate(config, rel, folder) {
       for (const key of ['photo', 'purpose']) {
         if (m[key] !== undefined && typeof m[key] !== 'string') err(f(key), `должно быть строкой (сейчас: ${show(m[key])})`);
       }
-      if (typeof m.photo === 'string' && m.photo.trim() && !fs.existsSync(path.join(dir, m.photo))) {
-        err(f('photo'), `файл ${show(m.photo)} не найден в companies/${folder}/`);
+      checkImage(f('photo'), m.photo);
+      if (!isEmpty(m.kind) && !KINDS.includes(m.kind)) {
+        err(f('kind'), `неизвестный вид техники ${show(m.kind)}; допустимо: ${KINDS.join(', ')}`);
       }
       if (!isNumOrNull(m.rate_from) || (typeof m.rate_from === 'number' && m.rate_from <= 0)) {
         err(f('rate_from'), `число больше 0 или null (сейчас: ${show(m.rate_from)})`);
@@ -285,14 +307,45 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-// 25000 → «25 000» (неразрывный пробел, чтобы число не переносилось).
-function fmtNum(n) {
-  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-}
+const fmtNum = Calc.fmtNum;
 
 function rateText(m, currency) {
-  if (m.rate_from == null) return 'стоимость назовёт менеджер';
-  return `от ${fmtNum(m.rate_from)} ${currency} / ${m.unit}`;
+  if (m.rate_from == null) return 'цена по запросу';
+  return `от ${fmtNum(m.rate_from)} ${currency}/${m.unit}`;
+}
+
+// Иконки видов техники: иллюстрация, не фото. Единый стиль — контур 2px, скругления.
+const KIND_PATHS = {
+  excavator: '<rect x="14" y="60" width="62" height="14" rx="7"/><circle cx="23" cy="67" r="3"/><circle cx="67" cy="67" r="3"/><path d="M24 60V36h16l6 10h14v14"/><path d="M28 40h9v8h-9z"/><path d="M58 48L84 22l18 22"/><path d="M96 44c0 8 4 13 12 13V44z"/>',
+  crane: '<rect x="10" y="52" width="78" height="10" rx="2"/><path d="M88 62V44h12l8 8v10z"/><circle cx="24" cy="68" r="6"/><circle cx="42" cy="68" r="6"/><circle cx="96" cy="68" r="6"/><rect x="22" y="44" width="16" height="8" rx="2"/><path d="M30 44L96 12"/><path d="M96 12v24"/><path d="M96 36c0 4-5 4-5 0"/>',
+  dump_truck: '<path d="M10 24h60l-6 28H14z"/><path d="M74 52V32h16l10 12v8z"/><path d="M78 36h10l6 8H78z"/><path d="M8 56h96"/><circle cx="24" cy="64" r="7"/><circle cx="44" cy="64" r="7"/><circle cx="88" cy="64" r="7"/>',
+  loader: '<path d="M44 58V40h44v18"/><path d="M56 40V18h24v22"/><rect x="60" y="22" width="16" height="11" rx="1"/><circle cx="52" cy="64" r="10"/><circle cx="84" cy="64" r="10"/><path d="M44 46L26 56"/><path d="M26 44H12v18h16z"/>',
+  manipulator: '<path d="M8 58h96"/><path d="M84 58V38h12l8 10v10z"/><rect x="12" y="46" width="52" height="12" rx="1"/><path d="M70 58V30"/><path d="M70 30L48 20L30 30"/><path d="M30 30v10"/><circle cx="24" cy="66" r="6"/><circle cx="44" cy="66" r="6"/><circle cx="92" cy="66" r="6"/>',
+  aerial_platform: '<path d="M8 58h96"/><path d="M84 58V38h12l8 10v10z"/><rect x="26" y="48" width="18" height="10" rx="1"/><path d="M35 48L66 18"/><rect x="60" y="6" width="20" height="12" rx="1"/><circle cx="24" cy="66" r="6"/><circle cx="44" cy="66" r="6"/><circle cx="92" cy="66" r="6"/>',
+  bulldozer: '<rect x="30" y="58" width="64" height="14" rx="7"/><circle cx="38" cy="65" r="3"/><circle cx="86" cy="65" r="3"/><path d="M36 58V40h44v18"/><path d="M54 40V20h22v20"/><path d="M12 34h8v38h-8c4-13 4-25 0-38z"/><path d="M20 52h16"/>',
+  roller: '<circle cx="28" cy="58" r="15"/><path d="M28 43h14"/><path d="M42 58V38h40v20"/><path d="M60 38V18h22v20"/><path d="M43 58h36"/><circle cx="90" cy="64" r="9"/>',
+  tractor: '<circle cx="80" cy="56" r="17"/><circle cx="80" cy="56" r="5"/><circle cx="30" cy="64" r="10"/><path d="M20 54V42l6-10h38"/><path d="M64 39V14h26v25"/><rect x="69" y="18" width="16" height="12" rx="1"/>',
+  other: '<rect x="10" y="26" width="62" height="30" rx="2"/><path d="M72 56V36h16l10 10v10z"/><path d="M8 56h96"/><circle cx="26" cy="64" r="7"/><circle cx="86" cy="64" r="7"/>',
+};
+
+function kindIcon(kind, cls) {
+  const body = KIND_PATHS[kind] || KIND_PATHS.other;
+  return `<svg class="${cls}" viewBox="0 0 120 90" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+
+// Иконки интерфейса (24×24, тот же стиль).
+const UI = {
+  phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
+  check: '<path d="M6 12.5l4 4 8-9"/>',
+  quote: '<path d="M10 6C6.5 7.2 4 9.8 4 13.5V18h6v-6H6.5c.3-2 1.6-3.4 3.5-4.2z"/><path d="M20 6c-3.5 1.2-6 3.8-6 7.5V18h6v-6h-3.5c.3-2 1.6-3.4 3.5-4.2z"/>',
+};
+
+function uiIcon(name, cls = 'ui') {
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${UI[name]}</svg>`;
 }
 
 function str(v) {
@@ -326,12 +379,40 @@ function render(tpl, vars) {
   return out;
 }
 
+function machineCard(m, currency) {
+  const busy = !m.available;
+  const photo = str(m.photo);
+  const media = photo
+    ? `<img src="${esc(photo)}" alt="" width="1200" height="900" loading="lazy">`
+    : kindIcon(m.kind, 'mc__icon');
+  return [
+    `        <button type="button" class="mc${busy ? ' mc--busy' : ''}" data-id="${esc(m.id)}" aria-pressed="false"${busy ? ' disabled' : ''}>`,
+    `          <span class="mc__media${photo ? '' : ' mc__media--icon'}">${media}`,
+    `            <span class="badge ${busy ? 'badge--busy' : 'badge--free'}">${busy ? 'Занята' : 'Свободна'}</span>`,
+    `            <span class="mc__check">${uiIcon('check')}</span>`,
+    '          </span>',
+    '          <span class="mc__body">',
+    `            <span class="mc__title">${esc(m.title)}</span>`,
+    str(m.purpose) ? `            <span class="mc__purpose">${esc(str(m.purpose))}</span>` : null,
+    `            <span class="mc__price${m.rate_from == null ? ' mc__price--ask' : ''}">${esc(rateText(m, currency))}</span>`,
+    m.min_units ? `            <span class="mc__min">мин. ${esc(Calc.qty(m.min_units, m.unit))}</span>` : null,
+    '          </span>',
+    busy
+      ? '          <span class="mc__cta mc__cta--busy">Занята</span>'
+      : `          <span class="mc__cta">${uiIcon('check', 'ui mc__cta-ico')}<span class="mc__cta-text">Выбрать</span></span>`,
+    '        </button>',
+  ].filter((l) => l !== null).join('\n');
+}
+
 function pageVars(config) {
   const name = str(config.name);
   const city = str(config.city);
+  const cityIn = str(config.city_in);
+  const address = str(config.address);
   const phone = str(config.phone);
   const whatsapp = str(config.whatsapp);
   const currency = str(config.currency);
+  const source2gis = str(config.source_2gis);
   const machines = config.machines.map((m) => ({ ...m, available: m.available !== false }));
   const zones = Array.isArray(config.zones) ? config.zones : [];
   const reviews = Array.isArray(config.reviews_summary) ? config.reviews_summary.map(str).filter(Boolean) : [];
@@ -348,44 +429,28 @@ function pageVars(config) {
     ? `<img class="brand__logo" src="${esc(logo)}" alt="${esc(name)}">`
     : `<span class="brand__name">${esc(name)}</span>`;
 
-  // Кнопка «Позвонить»: телефон, а если его нет — WhatsApp.
-  const callHref = phone ? `tel:+${digits(phone)}` : `https://wa.me/${whatsapp}`;
+  // Связь: телефон, а если его нет — WhatsApp.
+  const phoneTel = phone ? `+${digits(phone)}` : '';
+  const callHref = phone ? `tel:${phoneTel}` : `https://wa.me/${whatsapp}`;
   const callLabel = phone ? 'Позвонить' : 'WhatsApp';
+  const callIcon = phone ? 'phone' : 'chat';
 
-  const heroMachine = machines.find((m) => m.available && str(m.photo)) || machines.find((m) => str(m.photo));
+  // Первый экран: hero_photo → фото первой свободной позиции → иконка на фоне primary.
+  const firstFree = machines.find((m) => m.available) || machines[0];
+  const heroPhoto = str(config.hero_photo)
+    || str((machines.find((m) => m.available && str(m.photo)) || {}).photo);
+  const heroMedia = heroPhoto
+    ? `<img class="hero__img" src="${esc(heroPhoto)}" alt="" width="1200" height="900">`
+    : kindIcon(firstFree.kind, 'hero__icon');
 
-  const machineOptions = machines.map((m) => {
-    const busy = !m.available;
-    return [
-      `            <label class="opt${busy ? ' opt--busy' : ''}">`,
-      `              <input type="radio" name="machine" value="${esc(m.id)}"${busy ? ' disabled' : ''} required>`,
-      '              <span class="opt__body">',
-      `                <span class="opt__title">${esc(m.title)}</span>`,
-      `                <span class="opt__meta">${esc(rateText(m, currency))}</span>`,
-      busy ? '                <span class="busy">сейчас занята</span>' : null,
-      '              </span>',
-      '            </label>',
-    ].filter((l) => l !== null).join('\n');
-  }).join('\n');
+  const zoneChips = zones.map((z, i) => `            <button type="button" class="chip" data-zone="${i}" aria-pressed="false">${esc(z.title)}</button>`).join('\n');
+  const reviewItems = reviews.map((r) => `        <li class="review">${uiIcon('quote', 'review__q')}<p>${esc(r)}</p></li>`).join('\n');
 
-  const machineCards = machines.map((m) => {
-    const busy = !m.available;
-    return [
-      `        <article class="mcard${busy ? ' mcard--busy' : ''}">`,
-      str(m.photo) ? `          <img src="${esc(str(m.photo))}" alt="${esc(m.title)}" loading="lazy">` : null,
-      '          <div class="mcard__body">',
-      `            <h3>${esc(m.title)}</h3>`,
-      str(m.purpose) ? `            <p>${esc(str(m.purpose))}</p>` : null,
-      `            <p class="mcard__rate">${esc(rateText(m, currency))}</p>`,
-      m.min_units ? `            <p>минимальный заказ — ${m.min_units} ${esc(m.unit)}</p>` : null,
-      busy ? '            <p class="busy">сейчас занята</p>' : null,
-      '          </div>',
-      '        </article>',
-    ].filter((l) => l !== null).join('\n');
-  }).join('\n');
-
-  const zoneOptions = zones.map((z, i) => `            <option value="${i}">${esc(z.title)}</option>`).join('\n');
-  const reviewItems = reviews.map((r) => `        <li>${esc(r)}</li>`).join('\n');
+  const contactButtons = [
+    phone ? `        <a class="btn btn--accent" href="tel:${esc(phoneTel)}">${uiIcon('phone')}Позвонить</a>` : null,
+    whatsapp ? `        <a class="btn btn--line" href="https://wa.me/${esc(whatsapp)}">${uiIcon('chat')}WhatsApp</a>` : null,
+    source2gis ? `        <a class="btn btn--line" href="${esc(source2gis)}" target="_blank" rel="nofollow noopener">${uiIcon('pin')}Открыть в 2ГИС</a>` : null,
+  ].filter(Boolean).join('\n');
 
   // Данные для калькулятора (app.js). «<» экранируем, чтобы строка не закрыла <script>.
   const data = {
@@ -404,31 +469,31 @@ function pageVars(config) {
     demo: config.demo === true,
     name,
     city,
-    address: str(config.address),
+    address: address ? [city, address].filter(Boolean).join(', ') : '',
     schedule: str(config.schedule),
-    phone,
-    phone_tel: phone ? `+${digits(phone)}` : '',
-    whatsapp,
     about: str(config.about),
-    source_2gis: str(config.source_2gis),
-    price_note: str(config.price_note),
     page_title: `${name} — аренда спецтехники${city ? `, ${city}` : ''}`,
-    page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Расчёт стоимости и заявка онлайн.`,
+    page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Выбор техники, расчёт и заявка онлайн.`,
     color_style: colorRules.length ? `<style>:root{${colorRules.join(';')}}</style>` : '',
     brand_html: brandHtml,
     call_href: callHref,
     call_label: callLabel,
-    hero_photo: heroMachine ? str(heroMachine.photo) : '',
-    hero_alt: heroMachine ? heroMachine.title : '',
-    hero_sub: city ? `Аренда спецтехники · ${city}` : 'Аренда спецтехники',
-    first_unit: (machines.find((m) => m.available) || machines[0]).unit,
-    machine_options: machineOptions,
-    machine_cards: machineCards,
+    call_icon: uiIcon(callIcon),
+    hero_class: heroPhoto ? 'hero--photo' : 'hero--icon',
+    hero_media: heroMedia,
+    hero_title: cityIn ? `Аренда спецтехники ${cityIn}` : 'Аренда спецтехники',
+    hero_sub: !cityIn && city ? `${city} · ${name}` : name,
+    step_icon_1: uiIcon('grid', 'how__ico'),
+    step_icon_2: uiIcon('calendar', 'how__ico'),
+    step_icon_3: uiIcon(whatsapp ? 'chat' : 'phone', 'how__ico'),
+    step_3_label: whatsapp ? 'Заявка в WhatsApp' : 'Звонок менеджеру',
+    machine_cards: machines.map((m) => machineCard(m, currency)).join('\n'),
     has_zones: zones.length > 0,
-    zone_options: zoneOptions,
+    zone_chips: zoneChips,
     has_reviews: reviews.length > 0,
     review_items: reviewItems,
-    submit_label: whatsapp ? 'Отправить заявку в WhatsApp' : 'Позвонить и заказать',
+    contact_buttons: contactButtons,
+    submit_label: whatsapp ? 'Отправить в WhatsApp' : 'Позвонить',
     data_json: JSON.stringify(data).replace(/</g, '\\u003c'),
   };
 }

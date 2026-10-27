@@ -3,6 +3,7 @@
   "slug": "_test",
   "name": "ТЕСТОВАЯ КОМПАНИЯ",
   "logo": "",
+  "hero_photo": "img/hero.svg",
   "city": "Тестовый город",
   "address": "Тестовый адрес, 1",
   "schedule": "Пн–Сб 8:00–20:00 (тест)",
@@ -21,7 +22,8 @@
     {
       "id": "ekskavator",
       "title": "Экскаватор-погрузчик (тест)",
-      "photo": "",
+      "kind": "excavator",
+      "photo": "img/excavator.svg",
       "purpose": "Тестовая позиция с минимальным заказом",
       "rate_from": 12000,
       "rate_to": 15000,
@@ -32,6 +34,7 @@
     {
       "id": "avtokran",
       "title": "Автокран 25 т (тест)",
+      "kind": "crane",
       "photo": "",
       "purpose": "Тестовая позиция без цены",
       "rate_from": null,
@@ -43,6 +46,7 @@
     {
       "id": "samosval",
       "title": "Самосвал 20 т (тест)",
+      "kind": "dump_truck",
       "photo": "",
       "purpose": "Тестовая занятая позиция",
       "rate_from": 10000,
@@ -50,6 +54,18 @@
       "unit": "час",
       "min_units": null,
       "available": false
+    },
+    {
+      "id": "pogruzchik",
+      "title": "Фронтальный погрузчик (тест)",
+      "kind": "loader",
+      "photo": "",
+      "purpose": "Тестовая позиция без фото и без min_units",
+      "rate_from": 9000,
+      "rate_to": 11000,
+      "unit": "час",
+      "min_units": null,
+      "available": true
     }
   ],
   "zones": [
