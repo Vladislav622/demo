@@ -474,19 +474,30 @@ function render(tpl, vars) {
   return out;
 }
 
-// Общее фото по виду техники (assets/stock/<kind>.jpg), если у позиции нет своего.
-function stockFor(kind) {
+// Общие фото по виду техники: assets/stock/<kind>.jpg, <kind>-2.jpg, <kind>-3.jpg (какие есть).
+function stockFiles(kind) {
   const k = KINDS.includes(kind) ? kind : 'other';
-  return fs.existsSync(path.join(STOCK_DIR, `${k}.jpg`)) ? k : null;
+  return [`${k}.jpg`, `${k}-2.jpg`, `${k}-3.jpg`].filter((f) => fs.existsSync(path.join(STOCK_DIR, f)));
 }
 
-// Картинка позиции: своё фото → общее «для примера» → SVG-иконка.
-function machineMedia(m) {
-  const photo = str(m.photo);
-  if (photo) return { type: 'photo', src: photo };
-  const stock = stockFor(m.kind);
-  if (stock) return { type: 'stock', src: `img/stock/${stock}.jpg` };
-  return { type: 'icon' };
+// Картинки всех позиций: своё фото → общее «для примера» → SVG-иконка.
+// Общие фото одного вида раздаются по очереди, чтобы соседние карточки не повторялись.
+function machinesMedia(machines) {
+  const used = {};
+  return machines.map((m) => {
+    const photo = str(m.photo);
+    if (photo) return { type: 'photo', src: photo };
+    const files = stockFiles(m.kind);
+    if (!files.length) return { type: 'icon' };
+    const n = used[m.kind] || 0;
+    used[m.kind] = n + 1;
+    return { type: 'stock', src: `img/stock/${files[n % files.length]}` };
+  });
+}
+
+// Неразрывный пробел между числом и короткой единицей: «20 т», «22 м», «0,5 м³» не рвутся при переносе.
+function nbspUnits(html) {
+  return html.replace(/(\d) (т|м³|м²|м|кг|ч|км)(?=$|[\s.,;:)!?])/g, '$1&nbsp;$2');
 }
 
 const STATUS_CHIP = {
@@ -495,8 +506,7 @@ const STATUS_CHIP = {
   confirm: ['status--confirm', 'alert', 'Требует подтверждения'],
 };
 
-function machineCard(m, currency) {
-  const media = machineMedia(m);
+function machineCard(m, currency, media) {
   const [chipCls, chipIcon, chipText] = STATUS_CHIP[m.status];
   const busy = m.status === 'busy';
   const money = rateMoney(m, currency);
@@ -512,10 +522,10 @@ function machineCard(m, currency) {
     '          </div>',
     '          <div class="mc__body">',
     '            <div class="mc__head">',
-    `              <h3 class="mc__title">${esc(m.title)}</h3>`,
+    `              <h3 class="mc__title">${nbspUnits(esc(m.title))}</h3>`,
     `              <span class="status ${chipCls}">${uiIcon(chipIcon)}${chipText}</span>`,
     '            </div>',
-    str(m.purpose) ? `            <p class="mc__purpose">${esc(str(m.purpose))}</p>` : null,
+    str(m.purpose) ? `            <p class="mc__purpose">${nbspUnits(esc(str(m.purpose)))}</p>` : null,
     money
       ? `            <p class="mc__price"><b>${esc(money)}</b> /${esc(m.unit)}${min ? ` · ${esc(min)}` : ''}</p>`
       : `            <p class="mc__price"><b class="mc__ask">Цена по запросу</b>${min ? ` · ${esc(min)}` : ''}</p>`,
@@ -540,19 +550,21 @@ function normalizedMachines(config) {
 
 // Какие общие фото нужны компании (копируются в img/stock/).
 function neededStock(config) {
-  const all = [...normalizedMachines(config).map(machineMedia), heroMedia(config)];
+  const all = [...machinesMedia(normalizedMachines(config)), heroMedia(config)];
   return [...new Set(all.filter((x) => x.type === 'stock').map((x) => x.src))];
 }
 
-// Фото первого экрана: hero_photo → своё фото первой свободной позиции → общее фото по её виду.
+// Фото первого экрана: hero_photo → своё фото первой свободной позиции →
+// общий широкий кадр assets/stock/hero.jpg (не тот же, что в карточках) → общее фото по виду → иконка.
 function heroMedia(config) {
   const machines = normalizedMachines(config);
   if (str(config.hero_photo)) return { type: 'photo', src: str(config.hero_photo) };
   const withPhoto = machines.find((m) => m.status !== 'busy' && str(m.photo));
   if (withPhoto) return { type: 'photo', src: str(withPhoto.photo) };
+  if (fs.existsSync(path.join(STOCK_DIR, 'hero.jpg'))) return { type: 'stock', src: 'img/stock/hero.jpg' };
   const firstFree = machines.find((m) => m.status !== 'busy') || machines[0];
-  const stock = stockFor(firstFree.kind);
-  return stock ? { type: 'stock', src: `img/stock/${stock}.jpg` } : { type: 'icon', src: '' };
+  const files = stockFiles(firstFree.kind);
+  return files.length ? { type: 'stock', src: `img/stock/${files[0]}` } : { type: 'icon', src: '' };
 }
 
 function pageVars(config) {
@@ -687,7 +699,7 @@ function pageVars(config) {
     icon_phone_ctl: uiIcon('phone', 'ui ctl__ico'),
     icon_map_ctl: uiIcon('truck', 'ui ctl__ico'),
     hero_chip: city ? (cityIn ? `Спецтехника ${cityIn}` : `Спецтехника в городе ${city}`) : '',
-    hero_title: heroTitle,
+    hero_title: nbspUnits(heroTitle),
     has_hero_photo: Boolean(heroPhoto),
     hero_stock: hero.type === 'stock',
     hero_class: heroPhoto ? 'hero--photo' : 'hero--icon',
@@ -697,7 +709,7 @@ function pageVars(config) {
     stat_count_label: `${Calc.pluralForms(count, ['единица', 'единицы', 'единиц'])} техники`,
     has_features: features.length > 0,
     feature_items: featureItems,
-    machine_cards: machines.map((m) => machineCard(m, currency)).join('\n'),
+    machine_cards: (() => { const media = machinesMedia(machines); return machines.map((m, i) => machineCard(m, currency, media[i])).join('\n'); })(),
     machine_count: String(machines.length),
     machine_options: machineOptions,
     has_zones: zones.length > 0,

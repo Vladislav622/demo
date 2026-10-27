@@ -351,7 +351,7 @@ async function main() {
   const sh1 = await js(SHEET);
   check('360: «Отправить» открывает окно заявки снизу во всю ширину (bottom sheet)', sh1.open && sh1.w === sh1.vw && sh1.bottom === sh1.vh,
     `«${sh1.title}» ${sh1.sub}; ширина ${sh1.w} из ${sh1.vw}, низ ${sh1.bottom} = ${sh1.vh}`);
-  check('360: фокус внутри окна', sh1.focusInside, `на ${sh1.active}`);
+  check('360: при открытии фокус на самом окне (не на кнопке)', sh1.focusInside && /sheet__panel/.test(sh1.active), `на ${sh1.active}`);
   for (let i = 0; i < 6; i++) await key('Tab', 'Tab');
   const trap = await js(SHEET);
   check('360: Tab не выводит фокус из окна', trap.focusInside, `после 6×Tab на ${trap.active}`);
@@ -388,6 +388,21 @@ async function main() {
     document.querySelectorAll('.mc').forEach((c) => { const t = Math.round(c.getBoundingClientRect().top);
       (byRow[t] = byRow[t] || []).push(Math.round(c.querySelector('.mc__btn').getBoundingClientRect().top)); });
     return Object.values(byRow); })()`);
+  const photos = await js(`(() => { const srcs = [...document.querySelectorAll('.hero__media img, .mc__media img')].map((i) => i.getAttribute('src'));
+    return { n: srcs.length, unique: new Set(srcs).size, srcs }; })()`);
+  check('1280: фото первого экрана и всех карточек — разные файлы', photos.n === photos.unique,
+    `${photos.unique} разных из ${photos.n}: ${photos.srcs.map((x) => x.split('/').pop()).join(', ')}`);
+  // «20 т», «22 м», «0,5 м³» не разрываются переносом: обе части на одной строке.
+  const units = await js(`(() => { const out = [];
+    document.querySelectorAll('.mc__title, .mc__purpose').forEach((el) => {
+      const node = el.firstChild; if (!node || node.nodeType !== 3) return;
+      for (const m of node.textContent.matchAll(/\\d+(?:,\\d+)?\\u00a0(?:т|м³|м²|м|кг|ч|км)/g)) {
+        const r = document.createRange(); r.setStart(node, m.index); r.setEnd(node, m.index + m[0].length);
+        out.push({ t: m[0], one: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size === 1 });
+      } });
+    return out; })()`);
+  check('1280: число и единица не разрываются («20 т», «22 м» — неразрывный пробел)', units.length > 0 && units.every((u) => u.one),
+    units.map((u) => u.t.replace('\u00a0', '⍽')).join(', ') || 'нет совпадений');
   check('1280: в каждом ряду кнопки карточек на одной высоте', rows.every((r) => r.every((y) => y === r[0])), rows.map((r) => r.join('/')).join(' | '));
   const opts1280 = await js("[...document.querySelectorAll('#machine option')].filter((o) => o.value).map((o) => o.textContent)");
   const dates1280 = await js(DATE_CHECK);

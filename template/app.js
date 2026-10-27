@@ -35,7 +35,7 @@
 
   // 25000 → «25 000». По умолчанию неразрывный пробел, чтобы число не переносилось.
   function fmtNum(n, sep) {
-    return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, sep === undefined ? ' ' : sep);
+    return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, sep === undefined ? '\u00a0' : sep);
   }
 
   function minUnits(m) {
@@ -397,7 +397,7 @@
     var p = m ? calcPrice(m, state.units, zone) : null;
     var hasPrice = Boolean(p && p.low != null);
 
-    setText('sum-machine', m ? m.title : '—');
+    setText('sum-machine', m ? m.title.replace(/(\d) (т|м³|м²|м|кг|ч|км)(?=$|[\s.,;:)!?])/g, '$1\u00a0$2') : '—');
     setText('sum-units', m ? qty(state.units, m.unit) : '—');
     $$('.js-cost-row').forEach(function (row) { row.hidden = Boolean(m) && !hasPrice; });
     setText('sum-rent', hasPrice ? moneyRange(p.rentLow, p.rentHigh, data.currency) : '—');
@@ -517,7 +517,8 @@
     if (shareLink) shareLink.href = buildShareLink(location.href.split('#')[0], text);
     sheet.hidden = false;
     document.body.classList.add('sheet-open');
-    copyBtn.focus();
+    // Фокус — на само окно: обводка у кнопок появляется только при работе с клавиатуры.
+    sheetPanel.focus();
   }
 
   function closeSheet() {
@@ -576,7 +577,7 @@
     var list = focusables();
     var first = list[0];
     var last = list[list.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === sheetPanel)) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 

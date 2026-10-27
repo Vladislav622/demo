@@ -1,6 +1,8 @@
 # Общие фото «для примера» (assets/stock/)
 
 Показываются на карточке позиции, у которой нет своего фото, с подписью «Фото для примера».
+Несколько кадров на вид: `<kind>.jpg`, `<kind>-2.jpg`, `<kind>-3.jpg` — build.js раздаёт их позициям одного вида по очереди.
+`hero.jpg` — отдельный широкий кадр для первого экрана, если у компании нет своего фото.
 Фото с Unsplash (Unsplash License — https://unsplash.com/license) и Pexels (Pexels License — https://www.pexels.com/license/):
 бесплатно, в том числе для коммерческого использования, атрибуция не обязательна; авторов указываем из уважения.
 
@@ -18,6 +20,9 @@ Pexels: `w=1200&h=750&fit=crop&auto=compress`), 1200×750, ≤ 200 КБ.
 | bulldozer.jpg | Гусеничный бульдозер в карьере | https://unsplash.com/photos/a-powerful-yellow-bulldozer-on-a-white-quarry--mx0XkVtbYE | Valentin — https://unsplash.com/@omikron |
 | roller.jpg | Два дорожных катка на новом асфальте | https://unsplash.com/photos/two-yellow-road-rollers-on-asphalt-UVokx-KrIu4 | Nadin Nandin — https://unsplash.com/@nadin_nandin |
 | tractor.jpg | Трактор в поле | https://unsplash.com/photos/green-tractor-on-brown-grass-field-under-blue-sky-during-daytime-dDc0vuVH_LU | Randy Fath — https://unsplash.com/@randyfath |
+| excavator-2.jpg | Гусеничный экскаватор в котловане | https://unsplash.com/photos/yellow-and-black-excavator-on-brown-soil-maVHoAWycOs | Abdul Zreika — https://unsplash.com/@sandaproductions |
+| loader-2.jpg | Мини-погрузчик (skid steer) с грунтом | https://unsplash.com/photos/skid-steer-loader-moving-dirt-in-a-wooded-area-AB_TBnAjjTg | Chandler Cruttenden — https://unsplash.com/@chanphoto |
+| hero.jpg | Стройплощадка: экскаватор грузит самосвал (первый экран) | https://unsplash.com/photos/excavator-dumping-soil-into-dump-truck-eKY6_9W_iqY | Troy Mortier — https://unsplash.com/@troyscanon |
 
 Логотип производителя виден на bulldozer.jpg (CAT) — допустимо. На manipulator.jpg мелкий значок производителя на решётке и номер,
 на aerial_platform.jpg — мелкая наклейка на стреле, в карточке не читается. Рекламы прокатчиков нет.
