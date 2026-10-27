@@ -1,0 +1,262 @@
+{
+  "demo": true,
+  "slug": "_many",
+  "name": "Тест: 20 позиций",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "p1",
+      "title": "Позиция 1 (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "Назначение позиции 1 (тест)",
+      "rate_from": 5000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    },
+    {
+      "id": "p2",
+      "title": "Позиция 2 (тест)",
+      "kind": "crane",
+      "photo": "",
+      "purpose": "Назначение позиции 2 (тест)",
+      "rate_from": 6000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p3",
+      "title": "Позиция 3 (тест)",
+      "kind": "dump_truck",
+      "photo": "",
+      "purpose": "Назначение позиции 3 (тест)",
+      "rate_from": 7000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p4",
+      "title": "Позиция 4 (тест)",
+      "kind": "loader",
+      "photo": "",
+      "purpose": "Назначение позиции 4 (тест)",
+      "rate_from": 8000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "busy"
+    },
+    {
+      "id": "p5",
+      "title": "Позиция 5 (тест)",
+      "kind": "mini_loader",
+      "photo": "",
+      "purpose": "Назначение позиции 5 (тест)",
+      "rate_from": 9000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "confirm"
+    },
+    {
+      "id": "p6",
+      "title": "Позиция 6 (тест)",
+      "kind": "manipulator",
+      "photo": "",
+      "purpose": "Назначение позиции 6 (тест)",
+      "rate_from": 10000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p7",
+      "title": "Позиция 7 (тест)",
+      "kind": "aerial_platform",
+      "photo": "",
+      "purpose": "Назначение позиции 7 (тест)",
+      "rate_from": 11000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    },
+    {
+      "id": "p8",
+      "title": "Позиция 8 (тест)",
+      "kind": "bulldozer",
+      "photo": "",
+      "purpose": "Назначение позиции 8 (тест)",
+      "rate_from": 12000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p9",
+      "title": "Позиция 9 (тест)",
+      "kind": "roller",
+      "photo": "",
+      "purpose": "Назначение позиции 9 (тест)",
+      "rate_from": 13000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p10",
+      "title": "Позиция 10 (тест)",
+      "kind": "tractor",
+      "photo": "",
+      "purpose": "Назначение позиции 10 (тест)",
+      "rate_from": 14000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "confirm"
+    },
+    {
+      "id": "p11",
+      "title": "Позиция 11 (тест)",
+      "kind": "other",
+      "photo": "",
+      "purpose": "Назначение позиции 11 (тест)",
+      "rate_from": 15000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "busy"
+    },
+    {
+      "id": "p12",
+      "title": "Позиция 12 (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "Назначение позиции 12 (тест)",
+      "rate_from": 16000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p13",
+      "title": "Позиция 13 (тест)",
+      "kind": "crane",
+      "photo": "",
+      "purpose": "Назначение позиции 13 (тест)",
+      "rate_from": 17000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    },
+    {
+      "id": "p14",
+      "title": "Позиция 14 (тест)",
+      "kind": "dump_truck",
+      "photo": "",
+      "purpose": "Назначение позиции 14 (тест)",
+      "rate_from": 18000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p15",
+      "title": "Позиция 15 (тест)",
+      "kind": "loader",
+      "photo": "",
+      "purpose": "Назначение позиции 15 (тест)",
+      "rate_from": 19000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "confirm"
+    },
+    {
+      "id": "p16",
+      "title": "Позиция 16 (тест)",
+      "kind": "mini_loader",
+      "photo": "",
+      "purpose": "Назначение позиции 16 (тест)",
+      "rate_from": 20000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    },
+    {
+      "id": "p17",
+      "title": "Позиция 17 (тест)",
+      "kind": "manipulator",
+      "photo": "",
+      "purpose": "Назначение позиции 17 (тест)",
+      "rate_from": 21000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "p18",
+      "title": "Позиция 18 (тест)",
+      "kind": "aerial_platform",
+      "photo": "",
+      "purpose": "Назначение позиции 18 (тест)",
+      "rate_from": 22000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "busy"
+    },
+    {
+      "id": "p19",
+      "title": "Позиция 19 (тест)",
+      "kind": "bulldozer",
+      "photo": "",
+      "purpose": "Назначение позиции 19 (тест)",
+      "rate_from": 23000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    },
+    {
+      "id": "p20",
+      "title": "Позиция 20 (тест)",
+      "kind": "roller",
+      "photo": "",
+      "purpose": "Назначение позиции 20 (тест)",
+      "rate_from": 24000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "confirm"
+    }
+  ],
+  "zones": [
+    {
+      "title": "Город (тест)",
+      "delivery_from": 5000,
+      "delivery_to": null
+    },
+    {
+      "title": "Пригород (тест)",
+      "delivery_from": 12000,
+      "delivery_to": null
+    }
+  ],
+  "city": "Тестовый город"
+}

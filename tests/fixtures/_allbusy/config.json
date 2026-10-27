@@ -1,0 +1,53 @@
+{
+  "demo": true,
+  "slug": "_allbusy",
+  "name": "Тест: всё занято",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "a",
+      "title": "Экскаватор (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 12000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "busy"
+    },
+    {
+      "id": "b",
+      "title": "Автокран (тест)",
+      "kind": "crane",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 20000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "busy"
+    },
+    {
+      "id": "c",
+      "title": "Самосвал (тест)",
+      "kind": "dump_truck",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 10000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "busy"
+    }
+  ],
+  "zones": [
+    {
+      "title": "Город (тест)",
+      "delivery_from": 5000,
+      "delivery_to": null
+    }
+  ],
+  "city": "Тестовый город"
+}

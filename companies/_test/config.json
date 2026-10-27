@@ -11,7 +11,7 @@
   "address": "Тестовый адрес, 1",
   "schedule": "Пн–Сб 8:00–20:00 (тест)",
   "phone": "",
-  "whatsapp": "",
+  "whatsapp": "$TEST_WA",
   "telegram": "",
   "channel": "whatsapp",
   "delivery_time_text": "от 2 ч (тест)",

@@ -2,16 +2,19 @@
 // Только встроенные модули Node.
 //
 // node build.js         — все компании, кроме папок на «_» → docs/ (публикация)
-// node build.js --test  — все компании, включая папки на «_» → preview/ (не публикуется)
+// node build.js --test  — все компании, включая папки на «_», и фикстуры tests/fixtures → preview/ (не публикуется)
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const Calc = require('./template/app.js');
+const Calc = require('./template/core.js');
 
 const ROOT = __dirname;
 const COMPANIES_DIR = path.join(ROOT, 'companies');
+const FIXTURES_DIR = path.join(ROOT, 'tests', 'fixtures');
+const TEMPLATE_DIR = path.join(ROOT, 'template');
+const STOCK_DIR = path.join(ROOT, 'assets', 'stock');
 
 const KNOWN_KEYS = [
   'demo', 'slug', 'name', 'tagline', 'logo', 'hero_photo', 'hero_title', 'city', 'city_in', 'address', 'schedule',
@@ -28,19 +31,21 @@ const STATUSES = ['free', 'busy', 'confirm'];
 const CHANNELS = ['whatsapp', 'telegram'];
 const FEATURE_ICONS = ['park', 'clock', 'operator', 'calendar', 'shield', 'truck'];
 const FEATURE_KEYS = ['icon', 'title', 'text'];
-const STOCK_DIR = path.join(ROOT, 'assets', 'stock');
+// Контакты тестовых папок («_») не храним в репозитории: в конфиге пишется "$TEST_WA" и т. п.
+const PLACEHOLDER_KEYS = ['whatsapp', 'telegram', 'phone'];
 
 const SLUG_RE = /^_?[a-z0-9][a-z0-9-]*$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
+const DEFAULT_COLORS = { primary: '#1e211f', accent: '#b5361c' };
+const PAGE_BG = '#f1efea';
+
 function show(v) {
   return JSON.stringify(v);
 }
 
-function digits(s) {
-  return String(s).replace(/\D/g, '');
-}
+const digits = Calc.digitsOf;
 
 function isEmpty(v) {
   return v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
@@ -50,9 +55,17 @@ function isNumOrNull(v) {
   return v === null || v === undefined || (typeof v === 'number' && Number.isFinite(v));
 }
 
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function relPath(file) {
+  return path.relative(ROOT, file).split(path.sep).join('/');
+}
+
 // Читает config.json. Ошибку разбора JSON переводит в строку/столбец.
 function readConfig(file) {
-  const rel = path.relative(ROOT, file).split(path.sep).join('/');
+  const rel = relPath(file);
   if (!fs.existsSync(file)) {
     return { rel, errors: [`${rel}: файл не найден`] };
   }
@@ -72,16 +85,24 @@ function readConfig(file) {
   }
 }
 
-// Статус позиции: status, а для старых конфигов — available (true → free, false → busy).
-function machineStatus(m) {
-  if (STATUSES.includes(m.status)) return m.status;
-  return m.available === false ? 'busy' : 'free';
+// "$TEST_WA" → значение переменной окружения (только для тестовых папок «_»). Возвращает имена незаданных переменных.
+function resolvePlaceholders(config, folder) {
+  const missing = [];
+  for (const key of PLACEHOLDER_KEYS) {
+    const m = typeof config[key] === 'string' && /^\$(TEST_[A-Z]+)$/.exec(config[key].trim());
+    if (!m) continue;
+    if (!folder.startsWith('_')) continue;
+    const value = (process.env[m[1]] || '').trim().replace(/^@/, '');
+    if (!value) missing.push(m[1]);
+    config[key] = value;
+  }
+  return missing;
 }
 
 // Главный канал заявок: channel из конфига, иначе WhatsApp, если он есть, иначе Telegram, иначе звонок.
 function resolveChannel(config) {
-  const wa = typeof config.whatsapp === 'string' ? config.whatsapp.trim() : '';
-  const tg = typeof config.telegram === 'string' ? config.telegram.trim() : '';
+  const wa = str(config.whatsapp);
+  const tg = str(config.telegram);
   if (config.channel === 'telegram' && tg) return 'telegram';
   if (config.channel === 'whatsapp' && wa) return 'whatsapp';
   if (wa) return 'whatsapp';
@@ -89,13 +110,36 @@ function resolveChannel(config) {
   return 'phone';
 }
 
+// Размер картинки без зависимостей: PNG (IHDR), JPEG (SOF), WebP (VP8/VP8L/VP8X). SVG и прочее — null.
+function imageSize(file) {
+  const b = fs.readFileSync(file);
+  if (b.length > 24 && b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const marker = b[i + 1];
+      const len = b.readUInt16BE(i + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) };
+      i += 2 + len;
+    }
+  }
+  if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') {
+    const kind = b.toString('ascii', 12, 16);
+    if (kind === 'VP8 ') return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+    if (kind === 'VP8L') { const v = b.readUInt32LE(21); return { w: (v & 0x3fff) + 1, h: ((v >> 14) & 0x3fff) + 1 }; }
+    if (kind === 'VP8X') return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) };
+  }
+  return null;
+}
+
 // Возвращает { errors, warnings }. Каждая строка: «файл: поле — что не так».
-function validate(config, rel, folder) {
+function validate(config, rel, folder, dir = path.join(COMPANIES_DIR, folder), missingEnv = []) {
   const errors = [];
   const warnings = [];
   const err = (field, msg) => errors.push(`${rel}: ${field} — ${msg}`);
   const warn = (field, msg) => warnings.push(`${rel}: ${field} — ${msg}`);
-  const dir = path.join(COMPANIES_DIR, folder);
+  const dirRel = relPath(dir);
 
   if (typeof config !== 'object' || config === null || Array.isArray(config)) {
     err('(корень)', 'конфиг должен быть объектом { ... }');
@@ -123,13 +167,13 @@ function validate(config, rel, folder) {
   }
 
   // Контакт: WhatsApp (основной), Telegram (запасной) или телефон — хотя бы один.
-  const wa = typeof config.whatsapp === 'string' ? config.whatsapp.trim() : '';
-  const tg = typeof config.telegram === 'string' ? config.telegram.trim() : '';
-  const phone = typeof config.phone === 'string' ? config.phone.trim() : '';
-  if (tg && !/^[A-Za-z0-9_]{5,32}$/.test(tg)) {
+  const wa = str(config.whatsapp);
+  const tg = str(config.telegram);
+  const phone = str(config.phone);
+  if (tg && !Calc.isTelegram(tg)) {
     err('telegram', `username без @: латиница, цифры, «_», 5–32 символа (сейчас: ${show(config.telegram)})`);
   }
-  const channel = typeof config.channel === 'string' ? config.channel.trim() : '';
+  const channel = str(config.channel);
   if (channel && !CHANNELS.includes(channel)) {
     err('channel', `"whatsapp" или "telegram" (сейчас: ${show(config.channel)})`);
   } else if (channel === 'whatsapp' && !wa) {
@@ -137,7 +181,7 @@ function validate(config, rel, folder) {
   } else if (channel === 'telegram' && !tg) {
     err('channel', 'указан "telegram", но поле telegram пустое');
   }
-  if (wa && !/^\d{10,15}$/.test(wa)) {
+  if (wa && !Calc.isWhatsapp(wa)) {
     err('whatsapp', `только цифры в международном формате, 10–15 цифр, например 77011234567 (сейчас: ${show(config.whatsapp)})`);
   }
   if (phone && !/^[\d\s()+-]+$/.test(phone)) {
@@ -145,29 +189,32 @@ function validate(config, rel, folder) {
   } else if (phone && (digits(phone).length < 10 || digits(phone).length > 15)) {
     err('phone', `должно быть 10–15 цифр (сейчас: ${digits(phone).length})`);
   }
-  if (!wa && !tg && !phone) {
-    if (folder.startsWith('_')) {
-      err('whatsapp / phone', 'нет контакта — для тестовой сборки задайте TEST_WA=<ваш номер>, например: '
-        + 'TEST_WA=77011234567 node build.js --test (в PowerShell: $env:TEST_WA="77011234567"; node build.js --test)');
-    } else {
-      err('whatsapp / telegram / phone', 'нет ни WhatsApp, ни Telegram, ни телефона — демо без контакта не собираем');
-    }
+  for (const name of missingEnv) {
+    err(name, `не задана переменная окружения — например: ${name}=77011234567 node build.js --test (PowerShell: $env:${name}="77011234567"; node build.js --test)`);
+  }
+  if (!wa && !tg && !phone && !missingEnv.length) {
+    err('whatsapp / telegram / phone', 'нет ни WhatsApp, ни Telegram, ни телефона — демо без контакта не собираем');
   }
 
-  // Файл картинки должен существовать; тяжёлые фото — предупреждение.
+  // Файл картинки должен существовать; тяжёлые и слишком широкие фото — предупреждение с советом.
   const checkImage = (field, value) => {
     if (typeof value !== 'string' || !value.trim()) return;
     const file = path.join(dir, value.trim());
     if (!fs.existsSync(file)) {
-      err(field, `файл ${show(value)} не найден в companies/${folder}/`);
-    } else if (fs.statSync(file).size > PHOTO_WARN_BYTES) {
-      warn(field, `${show(value)} — ${Math.round(fs.statSync(file).size / 1024)} КБ, сожмите до ~200 КБ, ширина 1200px`);
+      err(field, `файл ${show(value)} не найден в ${dirRel}/`);
+      return;
+    }
+    const kb = Math.round(fs.statSync(file).size / 1024);
+    const size = imageSize(file);
+    if (kb > 300 || (size && size.w > 1600)) {
+      warn(field, `${show(value)} — ${kb} КБ${size ? `, ${size.w}×${size.h}` : ''}: сожмите до ширины 1600 px и ~200 КБ `
+        + '(например, squoosh.app → MozJPEG, качество 75, Resize 1600) и замените файл');
     }
   };
   checkImage('logo', config.logo);
   checkImage('hero_photo', config.hero_photo);
 
-  if (config.hero_title !== undefined && typeof config.hero_title === 'string' && (config.hero_title.match(/\*/g) || []).length % 2) {
+  if (typeof config.hero_title === 'string' && (config.hero_title.match(/\*/g) || []).length % 2) {
     err('hero_title', 'непарная «*»: выделяемые слова оборачиваются с двух сторон, например "Техника *точно в срок*"');
   }
 
@@ -282,8 +329,8 @@ function validate(config, rel, folder) {
         warn(f('available'), `устаревшее поле: замените на "status": "${m.available ? 'free' : 'busy'}"`);
       }
     });
-    if (config.machines.every((m) => m && machineStatus(m) === 'busy')) {
-      warn('machines', 'все позиции помечены занятыми — заказать будет нечего');
+    if (config.machines.every((m) => m && Calc.statusOf(m) === 'busy')) {
+      warn('machines', 'все позиции заняты — вместо расчёта будет сообщение «Сейчас вся техника занята»');
     }
   }
 
@@ -320,48 +367,122 @@ function validate(config, rel, folder) {
   return { errors, warnings };
 }
 
-// Загружает и проверяет все компании. Тестовые («_») — только в режиме --test.
-function loadCompanies(includeTest) {
-  const folders = fs.readdirSync(COMPANIES_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && (includeTest || !d.name.startsWith('_')))
-    .map((d) => d.name)
-    .sort();
+// Папки компаний: companies/<slug>, а в режиме --test ещё тестовые «_» и фикстуры tests/fixtures/_*.
+function companyFolders(includeTest) {
+  const list = [];
+  const scan = (base, onlyTest) => {
+    if (!fs.existsSync(base)) return;
+    for (const d of fs.readdirSync(base, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue;
+      if (d.name.startsWith('_') ? !includeTest : onlyTest) continue;
+      list.push({ folder: d.name, dir: path.join(base, d.name) });
+    }
+  };
+  scan(COMPANIES_DIR, false);
+  scan(FIXTURES_DIR, true);
+  return list.sort((a, b) => a.folder.localeCompare(b.folder));
+}
 
+// Загружает и проверяет компании. only — сборка одной компании.
+function loadCompanies(includeTest, only = null) {
+  const all = companyFolders(includeTest);
+  const entries = only ? all.filter((e) => e.folder === only) : all;
   const companies = [];
   const errors = [];
   const warnings = [];
+  const seen = new Set();
 
-  for (const folder of folders) {
-    const { rel, config, errors: readErrors } = readConfig(path.join(COMPANIES_DIR, folder, 'config.json'));
+  for (const { folder, dir } of entries) {
+    if (seen.has(folder)) {
+      errors.push(`${relPath(dir)}: папка с таким именем уже есть в companies/ — переименуйте`);
+      continue;
+    }
+    seen.add(folder);
+    const { rel, config, errors: readErrors } = readConfig(path.join(dir, 'config.json'));
     if (readErrors.length) {
       errors.push(...readErrors);
       continue;
     }
-    // Контакты тестовых компаний не храним в репозитории — берём из TEST_WA / TEST_TG; TEST_CHANNEL — главный канал.
-    if (folder.startsWith('_') && isEmpty(config.whatsapp) && process.env.TEST_WA) {
-      config.whatsapp = process.env.TEST_WA.trim();
-    }
-    if (folder.startsWith('_') && isEmpty(config.telegram) && process.env.TEST_TG) {
-      config.telegram = process.env.TEST_TG.trim().replace(/^@/, '');
-    }
-    if (folder.startsWith('_') && process.env.TEST_CHANNEL) {
-      config.channel = process.env.TEST_CHANNEL.trim();
-    }
-    const result = validate(config, rel, folder);
+    const missing = resolvePlaceholders(config, folder);
+    const result = validate(config, rel, folder, dir, missing);
     errors.push(...result.errors);
     warnings.push(...result.warnings);
     if (!includeTest && config.demo === false) {
       warnings.push(`${rel}: demo — demo=false в демо-репозитории: robots.txt закрывает сайт от поиска, публикуйте клиента отдельно`);
     }
-    if (!result.errors.length) companies.push({ folder, config });
+    if (!result.errors.length) companies.push({ folder, dir, config, warnings: result.warnings.length });
   }
 
-  return { folders, companies, errors, warnings };
+  return { folders: entries.map((e) => e.folder), companies, errors, warnings };
+}
+
+// ---------- Цвета: контраст текста ≥ 4,5:1 автоматически ----------
+
+function hexToRgb(hex) {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+}
+
+function rgbToHex(rgb) {
+  return `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function luminance(hex) {
+  const [r, g, b] = hexToRgb(hex).map((c) => c / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a, b) {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+// Смесь двух цветов: t — доля второго.
+function mix(a, b, t) {
+  const [p, q] = [hexToRgb(a), hexToRgb(b)];
+  return rgbToHex(p.map((v, i) => v + (q[i] - v) * t));
+}
+
+// Сдвигаем цвет к toward, пока контраст с фоном не станет ≥ min.
+function ensureContrast(fg, bg, toward, min = 4.5) {
+  for (let t = 0; t <= 1.0001; t += 0.05) {
+    const c = mix(fg, toward, t);
+    if (contrast(c, bg) >= min) return c;
+  }
+  return toward;
+}
+
+function inkFor(bg) {
+  return contrast('#ffffff', bg) >= contrast('#111111', bg) ? '#ffffff' : '#111111';
+}
+
+// Фон под текстом: если ни белый, ни тёмный текст не дают 4,5:1 (цвет средней яркости),
+// чуть затемняем или осветляем сам фон — фирменный оттенок сохраняется.
+function readableBg(color) {
+  const ink = inkFor(color);
+  return { bg: ensureContrast(color, ink, ink === '#ffffff' ? '#000000' : '#ffffff'), ink };
+}
+
+function palette(colors = {}) {
+  const { bg: primary, ink: primaryInk } = readableBg((str(colors.primary) || DEFAULT_COLORS.primary).toLowerCase());
+  const { bg: accent, ink: accentInk } = readableBg((str(colors.accent) || DEFAULT_COLORS.accent).toLowerCase());
+  const darkText = '#1e211f';
+  return {
+    primary,
+    'primary-ink': primaryInk,
+    'on-primary-muted': ensureContrast(mix(primaryInk, primary, 0.28), primary, primaryInk),
+    accent,
+    'accent-ink': accentInk,
+    // текст и иконки цвета акцента на светлом фоне страницы
+    'accent-text': ensureContrast(accent, PAGE_BG, darkText),
+    // акцент на тёмном (primary) фоне — первый экран, итоговая карточка
+    'accent-on-dark': ensureContrast(accent, primary, primaryInk),
+    'accent-soft': mix(accent, '#ffffff', 0.9),
+  };
 }
 
 // ---------- Генерация страниц ----------
-
-const TEMPLATE_DIR = path.join(ROOT, 'template');
 
 const ROOT_INDEX = `<!doctype html>
 <html lang="ru">
@@ -379,15 +500,8 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-const fmtNum = Calc.fmtNum;
-
-// «2 500 ₸» — ставка без единицы; null, если цены нет.
-function rateMoney(m, currency) {
-  return m.rate_from == null ? null : `${fmtNum(m.rate_from)} ${currency}`;
-}
-
-// «мин. смена — 4 часа» (неразрывный пробел перед единицей) — общая функция с сайтом.
-const minText = Calc.minText;
+// Текст с неразрывными пробелами «20 т» → безопасный HTML.
+const escUnits = (s) => esc(Calc.nbspUnits(s));
 
 // Иконки видов техники: иллюстрация, не фото. Единый стиль — контур 2px, скругления.
 const KIND_PATHS = {
@@ -441,25 +555,12 @@ function uiIcon(name, cls = 'ui') {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${UI[name]}</svg>`;
 }
 
-function str(v) {
-  return typeof v === 'string' ? v.trim() : '';
-}
-
-// Цвет текста поверх фона: тёмный или белый по яркости фона.
-function inkFor(hex) {
-  let h = hex.slice(1);
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
-    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return lum > 0.4 ? '#111111' : '#ffffff';
-}
-
 // Метки шаблона: {{key}} — текст с экранированием, {{{key}}} — готовый HTML,
 // <!--if:key-->…<!--/if:key--> — блок целиком вырезается из HTML, если значение пустое.
-function render(tpl, vars) {
+// Метки подставляются за один проход: в подставленных значениях «{{…}}» и «<!--if…-->» уже не обрабатываются.
+function render(tpl, vars, name = 'template') {
   const need = (k) => {
-    if (!(k in vars)) throw new Error(`template/index.html: метка «${k}» не задана в build.js`);
+    if (!(k in vars)) throw new Error(`${name}: метка «${k}» не задана в build.js`);
     return vars[k];
   };
   const IF_RE = /<!--if:(\w+)-->([\s\S]*?)<!--\/if:\1-->/g;
@@ -467,9 +568,7 @@ function render(tpl, vars) {
   while (new RegExp(IF_RE.source).test(out)) {
     out = out.replace(IF_RE, (_, k, body) => (need(k) ? body : ''));
   }
-  out = out.replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => need(k) ?? '');
-  out = out.replace(/\{\{(\w+)\}\}/g, (_, k) => esc(need(k) ?? ''));
-  return out;
+  return out.replace(/\{\{\{(\w+)\}\}\}|\{\{(\w+)\}\}/g, (_, raw, text) => (raw ? String(need(raw) ?? '') : esc(need(text) ?? '')));
 }
 
 // Общие фото по виду техники: assets/stock/<kind>.jpg, <kind>-2.jpg, <kind>-3.jpg (какие есть).
@@ -493,11 +592,6 @@ function machinesMedia(machines) {
   });
 }
 
-// Неразрывный пробел между числом и короткой единицей: «20 т», «22 м», «0,5 м³» не рвутся при переносе.
-function nbspUnits(html) {
-  return html.replace(/(\d) (т|м³|м²|м|кг|ч|км)(?=$|[\s.,;:)!?])/g, '$1&nbsp;$2');
-}
-
 const STATUS_CHIP = {
   free: ['status--free', 'checkCircle', 'Свободна'],
   busy: ['status--busy', 'clock', 'Занята'],
@@ -507,11 +601,11 @@ const STATUS_CHIP = {
 function machineCard(m, currency, media) {
   const [chipCls, chipIcon, chipText] = STATUS_CHIP[m.status];
   const busy = m.status === 'busy';
-  const money = rateMoney(m, currency);
-  const min = minText(m);
+  const rate = Calc.rateText(m, currency);
+  const min = Calc.minText(m);
   const mediaHtml = media.type === 'icon'
     ? kindIcon(m.kind, 'mc__icon')
-    : `<img src="${esc(media.src)}" alt="" width="1200" height="750" loading="lazy">`;
+    : `<img src="${esc(media.src)}" alt="" width="1200" height="750" loading="lazy" decoding="async">`;
   return [
     `        <article class="mc mc--${m.status}" data-id="${esc(m.id)}" data-status="${m.status}">`,
     `          <div class="mc__media${media.type === 'icon' ? ' mc__media--icon' : ''}">${mediaHtml}`,
@@ -520,16 +614,16 @@ function machineCard(m, currency, media) {
     '          </div>',
     '          <div class="mc__body">',
     '            <div class="mc__head">',
-    `              <h3 class="mc__title">${nbspUnits(esc(m.title))}</h3>`,
+    `              <h3 class="mc__title">${escUnits(m.title)}</h3>`,
     `              <span class="status ${chipCls}">${uiIcon(chipIcon)}${chipText}</span>`,
     '            </div>',
-    str(m.purpose) ? `            <p class="mc__purpose">${nbspUnits(esc(str(m.purpose)))}</p>` : null,
-    money
-      ? `            <p class="mc__price"><b>${esc(money)}</b> /${esc(m.unit)}${min ? ` · ${esc(min)}` : ''}</p>`
+    str(m.purpose) ? `            <p class="mc__purpose">${escUnits(str(m.purpose))}</p>` : null,
+    rate
+      ? `            <p class="mc__price"><b>${esc(rate)}</b> /${esc(m.unit)}${min ? ` · ${esc(min)}` : ''}</p>`
       : `            <p class="mc__price"><b class="mc__ask">Цена по запросу</b>${min ? ` · ${esc(min)}` : ''}</p>`,
     busy
       ? '            <button type="button" class="mc__btn" disabled>Сейчас занята</button>'
-      : `            <button type="button" class="mc__btn" aria-pressed="false"><span class="mc__btn-text">Выбрать</span>${uiIcon('check')}</button>`,
+      : `            <button type="button" class="mc__btn" aria-pressed="false" aria-label="${esc(Calc.cardLabel(m, currency))}"><span class="mc__btn-text">Выбрать</span>${uiIcon('check')}</button>`,
     '          </div>',
     '        </article>',
   ].filter((l) => l !== null).join('\n');
@@ -537,19 +631,13 @@ function machineCard(m, currency, media) {
 
 // «Спецтехника на объекте *точно в срок*» → акцентный цвет на словах в звёздочках.
 function accentTitle(text) {
-  return esc(text).replace(/\*([^*]+)\*/g, '<span class="accent">$1</span>');
+  return escUnits(text).replace(/\*([^*]+)\*/g, '<span class="accent">$1</span>');
 }
 
 const FEATURE_ICON = { park: 'park', clock: 'clock', operator: 'operator', calendar: 'calendar', shield: 'shield', truck: 'truck' };
 
 function normalizedMachines(config) {
-  return config.machines.map((m) => ({ ...m, status: machineStatus(m) }));
-}
-
-// Какие общие фото нужны компании (копируются в img/stock/).
-function neededStock(config) {
-  const all = [...machinesMedia(normalizedMachines(config)), heroMedia(config)];
-  return [...new Set(all.filter((x) => x.type === 'stock').map((x) => x.src))];
+  return config.machines.map((m) => ({ ...m, status: Calc.statusOf(m) }));
 }
 
 // Фото первого экрана: hero_photo → своё фото первой свободной позиции →
@@ -565,6 +653,18 @@ function heroMedia(config) {
   return files.length ? { type: 'stock', src: `img/stock/${files[0]}` } : { type: 'icon', src: '' };
 }
 
+// Какие общие фото нужны компании (копируются в img/stock/).
+function neededStock(config) {
+  const all = [...machinesMedia(normalizedMachines(config)), heroMedia(config)];
+  return [...new Set(all.filter((x) => x.type === 'stock').map((x) => x.src))];
+}
+
+const CHANNEL_UI = {
+  whatsapp: { label: 'Написать в WhatsApp', icon: 'chat', send: 'Отправить заявку в WhatsApp', short: 'Отправить' },
+  telegram: { label: 'Написать в Telegram', icon: 'plane', send: 'Отправить заявку в Telegram', short: 'Отправить' },
+  phone: { label: 'Позвонить', icon: 'phone', send: 'Позвонить', short: 'Позвонить' },
+};
+
 function pageVars(config) {
   const name = str(config.name);
   const city = str(config.city);
@@ -579,25 +679,19 @@ function pageVars(config) {
   const zones = Array.isArray(config.zones) ? config.zones : [];
   const reviews = Array.isArray(config.reviews_summary) ? config.reviews_summary.map(str).filter(Boolean) : [];
   const features = Array.isArray(config.features) ? config.features.filter((f) => f && str(f.title)) : [];
-  const colors = config.colors || {};
   const channel = resolveChannel(config);
+  const hasFree = machines.some((m) => m.status !== 'busy');
 
-  const colorRules = [];
-  for (const key of ['primary', 'accent']) {
-    const c = str(colors[key]);
-    if (c) colorRules.push(`--${key}:${c};--${key}-ink:${inkFor(c)}`);
-  }
+  const pal = palette(config.colors || {});
+  const colorStyle = `<style>:root{${Object.entries(pal).map(([k, v]) => `--${k}:${v}`).join(';')}}</style>`;
 
   const logo = str(config.logo);
   const logoHtml = logo ? `<img src="${esc(logo)}" alt="">` : uiIcon('truck');
 
   // Канал связи: WhatsApp (основной), Telegram (запасной), иначе звонок.
   const phoneTel = phone ? `+${digits(phone)}` : '';
-  const CH = {
-    whatsapp: { href: `https://wa.me/${whatsapp}`, label: 'Написать в WhatsApp', short: 'WhatsApp', icon: 'chat', send: 'Отправить заявку в WhatsApp' },
-    telegram: { href: `https://t.me/${telegram}`, label: 'Написать в Telegram', short: 'Telegram', icon: 'plane', send: 'Отправить заявку в Telegram' },
-    phone: { href: `tel:${phoneTel}`, label: 'Позвонить', short: 'Позвонить', icon: 'phone', send: 'Позвонить и заказать' },
-  }[channel];
+  const CH = CHANNEL_UI[channel];
+  const channelHref = { whatsapp: `https://wa.me/${whatsapp}`, telegram: `https://t.me/${telegram}`, phone: `tel:${phoneTel}` }[channel];
 
   // Первый экран: hero_photo → фото первой свободной позиции → общее фото «для примера» → иконка.
   const firstFree = machines.find((m) => m.status !== 'busy') || machines[0];
@@ -611,15 +705,14 @@ function pageVars(config) {
   const featureItems = features.map((f) => [
     '        <li class="feature">',
     `          <span class="feature__ico">${uiIcon(FEATURE_ICON[f.icon] || 'truck')}</span>`,
-    `          <span class="feature__title">${esc(str(f.title))}</span>`,
-    str(f.text) ? `          <span class="feature__text">${esc(str(f.text))}</span>` : null,
+    `          <span class="feature__title">${escUnits(str(f.title))}</span>`,
+    str(f.text) ? `          <span class="feature__text">${escUnits(str(f.text))}</span>` : null,
     '        </li>',
   ].filter((l) => l !== null).join('\n')).join('\n');
 
   const machineOptions = machines.filter((m) => m.status !== 'busy').map((m) => {
-    const money = rateMoney(m, currency);
-    const label = `${m.title} · ${money ? `${money}/${m.unit === 'час' ? 'ч' : m.unit}` : 'цена по запросу'}`;
-    return `              <option value="${esc(m.id)}" data-full="${esc(label)}" data-short="${esc(m.title)}">${esc(label)}</option>`;
+    const label = Calc.optionLabel(m, currency);
+    return `              <option value="${esc(m.id)}" data-full="${esc(label)}" data-short="${escUnits(m.title)}">${esc(label)}</option>`;
   }).join('\n');
 
   const zoneOptions = zones.map((z, i) => {
@@ -627,20 +720,20 @@ function pageVars(config) {
     const to = z.delivery_to ?? from;
     let price = '';
     if (from === 0 && (to === 0 || to == null)) price = ' — бесплатно';
-    else if (from != null) price = ` — ${from === to ? `${fmtNum(from)} ${currency}` : `${fmtNum(from)}–${fmtNum(to)} ${currency}`}`;
+    else if (from != null) price = ` — ${Calc.moneyRange(from, to, currency)}`;
     return `              <option value="${i}">${esc(z.title + price)}</option>`;
   }).join('\n');
 
-  const reviewItems = reviews.map((r) => `        <li class="review">${uiIcon('quote', 'review__q')}<p>${esc(r)}</p></li>`).join('\n');
+  const reviewItems = reviews.map((r) => `        <li class="review">${uiIcon('quote', 'review__q')}<p>${escUnits(r)}</p></li>`).join('\n');
 
   const contactButtons = [
     whatsapp ? `        <a class="btn ${channel === 'whatsapp' ? 'btn--accent' : 'btn--line'}" href="https://wa.me/${esc(whatsapp)}">${uiIcon('chat')}WhatsApp</a>` : null,
     telegram ? `        <a class="btn ${channel === 'telegram' ? 'btn--accent' : 'btn--line'}" href="https://t.me/${esc(telegram)}">${uiIcon('plane')}Telegram</a>` : null,
-    phone ? `        <a class="btn btn--line" href="tel:${esc(phoneTel)}">${uiIcon('phone')}Позвонить</a>` : null,
-    source2gis ? `        <a class="btn btn--line" href="${esc(source2gis)}" target="_blank" rel="nofollow noopener">${uiIcon('pin')}Открыть в 2ГИС</a>` : null,
+    phone ? `        <a class="btn ${channel === 'phone' ? 'btn--accent' : 'btn--line'}" href="tel:${esc(phoneTel)}">${uiIcon('phone')}Позвонить</a>` : null,
+    source2gis ? `        <a class="btn btn--line" href="${esc(source2gis)}" target="_blank" rel="nofollow noopener noreferrer">${uiIcon('pin')}Открыть в 2ГИС</a>` : null,
   ].filter(Boolean).join('\n');
 
-  // Данные для расчёта (app.js). «<» экранируем, чтобы строка не закрыла <script>.
+  // Данные для расчёта (core.js). «<» экранируем, чтобы строка не закрыла <script>.
   const data = {
     slug: config.slug,
     currency,
@@ -665,6 +758,7 @@ function pageVars(config) {
   return {
     demo: config.demo === true,
     name,
+    brand_class: Array.from(name).length > 28 ? ' brand--long' : '',
     tagline: str(config.tagline),
     city,
     schedule: str(config.schedule),
@@ -675,15 +769,17 @@ function pageVars(config) {
     delivery_time_text: str(config.delivery_time_text),
     page_title: `${name} — аренда спецтехники${city ? `, ${city}` : ''}`,
     page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Выбор техники, расчёт и заявка онлайн.`,
-    color_style: colorRules.length ? `<style>:root{${colorRules.join(';')}}</style>` : '',
+    color_style: colorStyle,
     logo_html: logoHtml,
-    channel_href: CH.href,
+    channel_href: channelHref,
     channel_label: CH.label,
-    channel_short: CH.short,
     channel_icon: uiIcon(CH.icon),
     send_label: CH.send,
+    send_short: CH.short,
     send_icon: uiIcon(CH.icon),
-    sheet_class: `sheet--${channel}`,
+    is_phone: channel === 'phone',
+    consent_attr: channel === 'phone' ? ' hidden' : '',
+    sheet_class: `sheet--${channel === 'telegram' ? 'telegram' : 'whatsapp'}`,
     sheet_title: channel === 'telegram' ? 'Заявка для Telegram' : 'Заявка для WhatsApp',
     open_label: channel === 'telegram' ? 'Открыть Telegram' : 'Открыть WhatsApp',
     is_telegram: channel === 'telegram',
@@ -705,7 +801,7 @@ function pageVars(config) {
     icon_phone_ctl: uiIcon('phone', 'ui ctl__ico'),
     icon_map_ctl: uiIcon('truck', 'ui ctl__ico'),
     hero_chip: city ? (cityIn ? `Спецтехника ${cityIn}` : `Спецтехника в городе ${city}`) : '',
-    hero_title: nbspUnits(heroTitle),
+    hero_title: heroTitle,
     has_hero_photo: Boolean(heroPhoto),
     hero_stock: hero.type === 'stock',
     hero_class: heroPhoto ? 'hero--photo' : 'hero--icon',
@@ -716,8 +812,12 @@ function pageVars(config) {
     has_features: features.length > 0,
     feature_items: featureItems,
     machine_cards: (() => { const media = machinesMedia(machines); return machines.map((m, i) => machineCard(m, currency, media[i])).join('\n'); })(),
-    machine_count: String(machines.length),
+    machine_count: String(count),
+    many_cards: count > 1,
+    grid_class: count === 1 ? ' grid--single' : '',
     machine_options: machineOptions,
+    calc_attr: hasFree ? '' : ' hidden',
+    allbusy_attr: hasFree ? ' hidden' : '',
     has_zones: zones.length > 0,
     zone_options: zoneOptions,
     has_reviews: reviews.length > 0,
@@ -727,14 +827,14 @@ function pageVars(config) {
   };
 }
 
-// style.css и app.js встраиваются в index.html: страница грузится одним запросом
+// CSS и JS встраиваются в страницу: она грузится одним запросом
 // (на медленном мобильном интернете каждый лишний запрос — это ещё одна задержка сети).
-// Панели владельца добавляются admin.css и admin.js.
-function inlineAssets(admin = false) {
+// Сайт: base.css + site.css, core.js + site.js. Панель: base.css + admin.css, core.js + admin.js.
+function inlineAssets(kind) {
   const read = (f) => fs.readFileSync(path.join(TEMPLATE_DIR, f), 'utf8').trim();
-  const css = admin ? `${read('style.css')}\n${read('admin.css')}` : read('style.css');
-  const js = admin ? `${read('app.js')}\n${read('admin.js')}` : read('app.js');
-  if (/<\/style/i.test(css) || /<\/script/i.test(js)) throw new Error('template: в style.css или app.js встречается закрывающий тег');
+  const css = `${read('base.css')}\n${read(`${kind}.css`)}`;
+  const js = `${read('core.js')}\n${read(`${kind}.js`)}`;
+  if (/<\/style/i.test(css) || /<\/script/i.test(js)) throw new Error('template: в CSS или JS встречается закрывающий тег');
   return { inline_css: `\n${css}\n`, inline_js: `\n${js}\n` };
 }
 
@@ -745,23 +845,31 @@ function adminVars(config, site) {
   const currency = str(config.currency);
   const cards = machines.map((m, i) => {
     const md = media[i];
-    const thumb = md.type === 'icon' ? kindIcon(m.kind, 'ac__icon') : `<img src="../${esc(md.src)}" alt="" width="1200" height="750" loading="lazy">`;
+    const thumb = md.type === 'icon' ? kindIcon(m.kind, 'ac__icon') : `<img src="../${esc(md.src)}" alt="" width="1200" height="750" loading="lazy" decoding="async">`;
     const hour = m.unit === 'час';
+    const per = hour ? 'час' : esc(m.unit);
+    const range = m.rate_to != null;
     return [
       `      <article class="ac" data-id="${esc(m.id)}">`,
       '        <div class="ac__top">',
       `          <span class="ac__thumb${md.type === 'icon' ? ' ac__thumb--icon' : ''}">${thumb}</span>`,
       '          <div class="ac__text">',
       '            <p class="ac__eyebrow">Техника</p>',
-      `            <h2 class="ac__title">${nbspUnits(esc(m.title))}</h2>`,
-      str(m.purpose) ? `            <p class="ac__purpose">${nbspUnits(esc(str(m.purpose)))}</p>` : null,
+      `            <h2 class="ac__title">${escUnits(m.title)}</h2>`,
+      str(m.purpose) ? `            <p class="ac__purpose">${escUnits(str(m.purpose))}</p>` : null,
       '          </div>',
       '        </div>',
       '        <div class="ac__fields">',
       '          <label class="ac__field">',
-      `            <span class="field__label">Цена за ${hour ? 'час' : esc(m.unit)}</span>`,
+      `            <span class="field__label">Цена за ${per}${range ? ', от' : ''}</span>`,
       `            <span class="ctl"><span class="ctl__prefix">${esc(currency)}</span><input class="input" type="text" inputmode="numeric" name="rate" placeholder="по запросу" autocomplete="off"></span>`,
       '          </label>',
+      range ? [
+        '          <label class="ac__field">',
+        `            <span class="field__label">Цена за ${per}, до</span>`,
+        `            <span class="ctl"><span class="ctl__prefix">${esc(currency)}</span><input class="input" type="text" inputmode="numeric" name="rate_to" placeholder="без «до»" autocomplete="off"></span>`,
+        '          </label>',
+      ].join('\n') : null,
       '          <label class="ac__field">',
       `            <span class="field__label"><span class="lbl-full">${hour ? 'Минимальная смена' : 'Минимальный заказ'}</span><span class="lbl-short">${hour ? 'Мин. смена' : 'Мин. заказ'}</span></span>`,
       `            <span class="ctl">${uiIcon('clock', 'ui ctl__ico')}<input class="input" type="text" inputmode="numeric" name="min" placeholder="нет" autocomplete="off"></span>`,
@@ -792,12 +900,13 @@ function adminVars(config, site) {
 
 function buildCompany(company, outRoot, tpl, adminTpl) {
   const dir = path.join(outRoot, company.folder);
+  fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const site = pageVars(company.config);
-  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, { ...site, ...inlineAssets() }));
+  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, { ...site, ...inlineAssets('site') }, 'template/index.html'));
   fs.mkdirSync(path.join(dir, 'admin'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets(true) }));
-  const img = path.join(COMPANIES_DIR, company.folder, 'img');
+  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets('admin') }, 'template/admin.html'));
+  const img = path.join(company.dir, 'img');
   if (fs.existsSync(img)) {
     fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });
   }
@@ -853,4 +962,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel };
+module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel, palette, contrast, esc };

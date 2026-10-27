@@ -1,0 +1,36 @@
+{
+  "demo": true,
+  "slug": "_phoneonly",
+  "name": "Тест: только телефон",
+  "currency": "₸",
+  "whatsapp": "",
+  "machines": [
+    {
+      "id": "a",
+      "title": "Экскаватор (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 12000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 4,
+      "status": "free"
+    },
+    {
+      "id": "b",
+      "title": "Самосвал (тест)",
+      "kind": "dump_truck",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 10000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    }
+  ],
+  "zones": [],
+  "city": "Тестовый город",
+  "phone": "$TEST_PHONE"
+}

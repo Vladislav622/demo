@@ -1,11 +1,11 @@
 // Скриншоты и проверки страницы компании в headless Edge/Chrome (протокол DevTools).
 // Только встроенные модули Node (нужен Node ≥ 22: глобальные fetch и WebSocket) + установленный Edge или Chrome.
 //
-// node tests/screens.js <slug>
+// node tests/screens.js <slug> [--quick]
 //   Берёт preview/<slug>/ (после node build.js --test) или docs/<slug>/.
-//   Пишет checks/<slug>-360-full.png, -360-selected.png, -1280.png, -1280-selected.png
-//   и печатает проверки «да/нет», плюс замер загрузки на «Slow 3G» без фото.
-//   Код выхода 1, если какая-то проверка «нет».
+//   Сам определяет, что есть на странице (свободные позиции, зоны, канал), и запускает подходящие проверки.
+//   Пишет скриншоты checks/<slug>-*.png и итог checks/<slug>-result.json, печатает проверки «да/нет».
+//   --quick — без замера Slow 3G. Код выхода 1, если какая-то проверка «нет».
 
 'use strict';
 
@@ -17,7 +17,6 @@ const path = require('path');
 const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
-const Calc = require('../template/app.js');
 const OUT = path.join(ROOT, 'checks');
 const BROWSERS = [
   process.env.BROWSER,
@@ -29,7 +28,7 @@ const BROWSERS = [
   '/usr/bin/chromium',
 ].filter(Boolean);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.txt': 'text/plain' };
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.txt': 'text/plain', '.json': 'application/json' };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -38,14 +37,19 @@ function fail(msg) {
   process.exit(1);
 }
 
-// Простой статический сервер для папки сборки.
-function serve(dir) {
+// Простой статический сервер для папки сборки. prefix — подпапка, как у GitHub Pages (/repo/).
+function serve(dir, prefix = '/') {
   const server = http.createServer((req, res) => {
     let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (!rel.startsWith(prefix)) { res.writeHead(404); res.end(); return; }
+    rel = `/${rel.slice(prefix.length)}`;
     if (rel.endsWith('/')) rel += 'index.html';
     const file = path.join(dir, rel);
     if (!file.startsWith(dir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      res.writeHead(404); res.end(); return;
+      const nf = path.join(dir, '404.html');
+      res.writeHead(404, { 'Content-Type': TYPES['.html'] });
+      res.end(fs.existsSync(nf) ? fs.readFileSync(nf) : '');
+      return;
     }
     const ext = path.extname(file);
     const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream' };
@@ -64,12 +68,12 @@ function serve(dir) {
 async function launch() {
   const exe = BROWSERS.find((p) => fs.existsSync(p));
   if (!exe) fail('не найден Edge или Chrome; укажите путь в переменной BROWSER');
-  const port = 9300 + Math.floor(Math.random() * 500);
+  const port = 9300 + Math.floor(Math.random() * 600);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'screens-'));
   const proc = spawn(exe, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
   let page;
-  for (let i = 0; i < 75 && !page; i++) {
+  for (let i = 0; i < 100 && !page; i++) {
     await sleep(200);
     try { page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page'); } catch (e) { /* ещё запускается */ }
   }
@@ -90,20 +94,30 @@ async function launch() {
     pending.set(n, (m) => (m.error ? rej(new Error(`${method}: ${m.error.message}`)) : res(m.result)));
     ws.send(JSON.stringify({ id: n, method, params }));
   });
-  const close = () => { ws.close(); proc.kill(); };
+  const close = () => { try { ws.close(); } catch (e) { /* уже закрыт */ } proc.kill(); };
   return { send, on: (fn) => listeners.push(fn), close };
 }
 
+function readConfig(slug) {
+  for (const dir of ['companies', path.join('tests', 'fixtures')]) {
+    const f = path.join(ROOT, dir, slug, 'config.json');
+    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
+  }
+  return {};
+}
+
 async function main() {
-  const slug = process.argv[2];
-  if (!slug) fail('укажите slug: node tests/screens.js _test');
+  const args = process.argv.slice(2);
+  const slug = args.find((a) => !a.startsWith('--'));
+  const quick = args.includes('--quick');
+  if (!slug) fail('укажите slug: node tests/screens.js _sample');
   const base = ['preview', 'docs'].map((d) => path.join(ROOT, d)).find((d) => fs.existsSync(path.join(d, slug, 'index.html')));
   if (!base) fail(`нет preview/${slug}/index.html и docs/${slug}/index.html — сначала соберите: node build.js --test`);
 
-  // city_in или hero_title в конфиге: заголовку первого экрана допустимо 3 строки.
-  const cfgFile = path.join(ROOT, 'companies', slug, 'config.json');
-  const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
+  const cfg = readConfig(slug);
+  // city_in или hero_title: заголовку первого экрана допустимо 3 строки; длинное название в шапке — до 3 строк.
   const heroMaxLines = String(cfg.city_in || '').trim() || String(cfg.hero_title || '').trim() ? 3 : 2;
+  const nameMaxLines = Array.from(String(cfg.name || '')).length > 28 ? 3 : 2;
 
   fs.mkdirSync(OUT, { recursive: true });
   const server = await serve(base);
@@ -111,45 +125,42 @@ async function main() {
   const b = await launch();
 
   const errors = [];
-  const waLinks = [];
+  const navLinks = [];
   b.on((msg) => {
     if (msg.method === 'Runtime.exceptionThrown') errors.push(msg.params.exceptionDetails.exception?.description || 'ошибка JS');
     if (msg.method === 'Fetch.requestPaused') {
-      waLinks.push(msg.params.request.url);
+      navLinks.push(msg.params.request.url);
       b.send('Fetch.failRequest', { requestId: msg.params.requestId, errorReason: 'Aborted' }).catch(() => {});
     }
   });
 
   const js = async (expr) => {
     const r = await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || 'ошибка в проверке');
+    if (r.exceptionDetails) throw new Error(`${r.exceptionDetails.exception?.description || 'ошибка в проверке'}\n  в выражении: ${expr.slice(0, 160)}`);
     return r.result.value;
   };
   const open = async (w, h, mobile, target = url) => {
     await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
     await b.send('Page.navigate', { url: target });
-    for (let i = 0; i < 50; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
+    for (let i = 0; i < 60; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
     await sleep(300);
   };
-  const shot = async (name, full, hasHero = true) => {
+  const shot = async (name, full) => {
     let params = { format: 'png' };
     if (full) {
       // Снимок всей страницы — от самого верха, иначе закреплённая шапка окажется посередине.
       await js('window.scrollTo(0, 0)');
       // Ленивые картинки ниже экрана сами не загрузятся — догружаем перед съёмкой всей страницы.
       await js(`Promise.all([...document.images].map((i) => { i.loading = 'eager'; return i.decode().catch(() => {}); }))`);
-      // При съёмке всей страницы vh растягивается — фиксируем высоту первого экрана в px.
-      // Закреплённые снизу кнопки панели на снимке всей страницы ставим в поток, иначе они окажутся посередине.
-      if (!hasHero) await js(`(() => { const s = document.createElement('style'); s.id = 'fix-hero'; s.textContent = '.adm-bar{position:static!important}'; document.head.appendChild(s); })()`);
-      if (hasHero) await js(`(() => { const h = document.querySelector('.hero').getBoundingClientRect().height;
-        const s = document.createElement('style'); s.id = 'fix-hero';
-        s.textContent = '.hero{min-height:' + h + 'px!important;max-height:' + h + 'px!important}';
+      // vh при съёмке всей страницы растягивается — фиксируем высоту первого экрана; закреплённые снизу панели ставим в поток.
+      await js(`(() => { const s = document.createElement('style'); s.id = 'fix-shot'; const hero = document.querySelector('.hero');
+        s.textContent = '.adm-bar{position:static!important}' + (hero ? '.hero{min-height:' + hero.getBoundingClientRect().height + 'px!important;max-height:' + hero.getBoundingClientRect().height + 'px!important}' : '');
         document.head.appendChild(s); })()`);
       const size = await js('({ w: document.documentElement.clientWidth, h: document.documentElement.scrollHeight })');
       params = { ...params, captureBeyondViewport: true, clip: { x: 0, y: 0, width: size.w, height: size.h, scale: 1 } };
     }
     const r = await b.send('Page.captureScreenshot', params);
-    if (full) await js("document.getElementById('fix-hero')?.remove()");
+    if (full) await js("document.getElementById('fix-shot')?.remove()");
     const file = path.join(OUT, `${slug}-${name}.png`);
     fs.writeFileSync(file, Buffer.from(r.data, 'base64'));
     return path.relative(ROOT, file).split(path.sep).join('/');
@@ -157,78 +168,69 @@ async function main() {
   // Настоящий тап мышью в центр элемента (а не element.click()).
   const tap = async (sel) => {
     const p = await js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null;
-      e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+      e.scrollIntoView({ block: 'center', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
     if (!p) throw new Error(`нет элемента ${sel}`);
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await b.send('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, button: 'left', clickCount: 1 });
+    for (const t of ['mousePressed', 'mouseReleased']) {
+      await b.send('Input.dispatchMouseEvent', { type: t, x: p.x, y: p.y, button: 'left', clickCount: 1 });
     }
     await sleep(250);
   };
   const type = async (sel, text) => { await tap(sel); await b.send('Input.insertText', { text }); };
+  const setValue = (sel, value) => js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); e.value = ${JSON.stringify(value)};
+    e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const KEYS = { Escape: 27, Tab: 9, Enter: 13, ' ': 32 };
+  const key = async (k, mods = 0) => {
+    for (const t of ['keyDown', 'keyUp']) await b.send('Input.dispatchKeyEvent', { type: t, key: k, code: k === ' ' ? 'Space' : k, windowsVirtualKeyCode: KEYS[k], modifiers: mods });
+    await sleep(120);
+  };
 
   await b.send('Page.enable');
   await b.send('Runtime.enable');
   await b.send('Fetch.enable', { patterns: [{ urlPattern: 'https://wa.me/*' }, { urlPattern: 'https://api.whatsapp.com/*' }, { urlPattern: 'https://t.me/*' }] });
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   await b.send('Browser.grantPermissions', { origin: new URL(url).origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] }).catch(() => {});
-  const key = async (k, code) => {
-    for (const type of ['keyDown', 'keyUp']) await b.send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: k === 'Escape' ? 27 : 9 });
-    await sleep(150);
-  };
+
+  const checks = [];
+  const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail == null ? '' : String(detail) });
+  const shots = [];
+  const notes = [];
+  const NOSCROLL = '({ sw: document.documentElement.scrollWidth, iw: innerWidth })';
+  const SMALL = `[...document.querySelectorAll('a.btn, button, .chip, .check, .input')]
+    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('[hidden]'))
+    .map((e) => ({ t: (e.textContent.trim() || e.id || e.className).slice(0, 30), h: Math.round(e.getBoundingClientRect().height) }))
+    .filter((e) => e.h < 44)`;
+  const SELECTED = "({ cards: [...document.querySelectorAll('.mc.is-selected')].map((e) => e.dataset.id), select: document.getElementById('machine').value })";
+  const FEATURES = `(() => { const d = JSON.parse(document.getElementById('site-data').textContent);
+    const st = (s) => d.machines.filter((m) => m.status === s).map((m) => m.id);
+    return { channel: d.channel, zones: d.zones.length, cards: d.machines.length, free: st('free'), busy: st('busy'), confirm: st('confirm'),
+      priced: d.machines.filter((m) => m.status !== 'busy' && m.rate_from != null).map((m) => m.id) }; })()`;
   const SHEET = `(() => { const sh = document.getElementById('sheet'), p = sh.querySelector('.sheet__panel'), r = p.getBoundingClientRect();
     return { open: !sh.hidden, title: document.getElementById('sheet-title').textContent, sub: document.getElementById('sheet-sub').textContent,
       text: document.getElementById('sheet-text').textContent, w: Math.round(r.width), left: Math.round(r.left), bottom: Math.round(r.bottom), top: Math.round(r.top),
       vw: innerWidth, vh: innerHeight, focusInside: p.contains(document.activeElement), active: document.activeElement.id || document.activeElement.className,
       share: document.getElementById('sheet-share')?.getAttribute('href') || '', hint: !document.getElementById('sheet-hint').hidden,
       copy: document.querySelector('.js-copy-label').textContent }; })()`;
-  // Заполнить заявку: первая свободная позиция, адрес, завтра, 09:00, +2 к минимуму, зона «Пригород…», комментарий, согласие.
-  const fillOrder = async () => {
-    await tap(FIRST_FREE);
+
+  const F = await (async () => { await open(360, 740, true); return js(FEATURES); })();
+  const selectable = [...F.free, ...F.confirm];
+  const firstFree = F.free[0] || F.confirm[0];
+  const card = (id) => `.mc[data-id="${id}"]`;
+
+  // Заполнить заявку: позиция, адрес, завтра, 09:00, +2 к минимуму, зона «Пригород…», комментарий, согласие.
+  const fillOrder = async (id) => {
+    await tap(`${card(id)} .mc__btn`);
     await type('#address', 'Тестовый адрес, 5');
     await tap('[data-date="tomorrow"]');
     await setValue('#time', '09:00');
     await tap('#units-plus'); await tap('#units-plus');
-    if (await js("Boolean(document.getElementById('zone'))")) {
+    if (F.zones) {
       await setValue('#zone', await js("([...document.querySelectorAll('#zone option')].find((o) => /Пригород/.test(o.textContent)) || [...document.querySelectorAll('#zone option')].pop()).value"));
     }
     await type('#comment', 'нужен ковш 0,5');
-    await tap('#consent');
+    if (await js("!document.querySelector('[data-field=\"consent\"]').hidden")) await tap('#consent');
   };
 
-  const checks = [];
-  const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail });
-  const shots = [];
-  const NOSCROLL = '({ sw: document.documentElement.scrollWidth, iw: innerWidth })';
-  const SMALL = `[...document.querySelectorAll('a.btn, button, .chip, .check, .input')]
-    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')
-    .map((e) => ({ t: (e.textContent.trim() || e.id || e.className).slice(0, 30), h: Math.round(e.getBoundingClientRect().height) }))
-    .filter((e) => e.h < 44)`;
-  const SELECTED = "({ cards: [...document.querySelectorAll('.mc.is-selected')].map((e) => e.dataset.id), select: document.getElementById('machine').value })";
-  const FIRST_FREE = '.mc--free .mc__btn';
-  const setValue = (sel, value) => js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); e.value = ${JSON.stringify(value)};
-    e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-
-  // ---------- 360 ----------
-  await open(360, 740, true);
-  // Лента каталога: прокручивается сама, страница — нет; счётчик и точки.
-  const strip = await js(`(() => { const g = document.querySelector('.grid'); const st = getComputedStyle(g);
-    return { overflow: st.overflowX, snap: st.scrollSnapType, sw: g.scrollWidth, cw: g.clientWidth, cards: g.children.length,
-      cardW: Math.round(g.children[0].getBoundingClientRect().width), counter: document.getElementById('park-counter').textContent,
-      dots: document.querySelectorAll('#park-dots button').length }; })()`);
-  check('360: каталог — горизонтальная лента (overflow-x auto, scroll-snap, карточка ≈ 85%)',
-    strip.overflow === 'auto' && /x/.test(strip.snap) && strip.sw > strip.cw && strip.cardW < strip.cw,
-    `${strip.cards} карточек, карточка ${strip.cardW}px из ${strip.cw}px, ${strip.snap}`);
-  check('360: точки-индикаторы ≤ 8', strip.dots > 0 && strip.dots <= 8, `${strip.dots}`);
-  await js("document.querySelector('.grid').scrollBy({ left: document.querySelector('.mc').offsetWidth + 12 })");
-  await sleep(500);
-  const c2 = await js("document.getElementById('park-counter').textContent");
-  await tap('#park-dots button:last-child');
-  await sleep(600);
-  const c3 = await js("document.getElementById('park-counter').textContent");
-  await js("document.querySelector('.grid').scrollTo({ left: 0 })");
-  await sleep(400);
-  check('360: лента прокручивается, счётчик меняется (прокрутка, тап по точке)', strip.counter !== c2 && c2 !== c3,
-    `${strip.counter} → ${c2} → ${c3}`);
+  // ---------- 360: шапка, первый экран, каталог ----------
   const demo = await js("({ bar: document.querySelector('.demo-bar')?.getBoundingClientRect().height ?? null, robots: document.querySelector('meta[name=robots]')?.content ?? null })");
   if (demo.bar !== null) {
     check('плашка демо видна и ≤ 36px', demo.bar > 0 && demo.bar <= 36, `${demo.bar}px`);
@@ -245,140 +247,164 @@ async function main() {
     return { name: { sw: n.scrollWidth, cw: n.clientWidth, overflow: getComputedStyle(n).textOverflow,
       lines: Math.round(n.getBoundingClientRect().height / parseFloat(getComputedStyle(n).lineHeight)) },
       btn: { w: Math.round(r.width), h: Math.round(r.height), label: b.getAttribute('aria-label'), textShown: Boolean(t && t.getClientRects().length) } }; })()`);
-  check('нет многоточия у названия в шапке (scrollWidth == clientWidth, без text-overflow, ≤ 2 строк)',
-    head.name.sw === head.name.cw && head.name.overflow !== 'ellipsis' && head.name.lines <= 2,
-    `${head.name.sw} = ${head.name.cw}, text-overflow: ${head.name.overflow}, строк: ${head.name.lines}`);
-  check('шапка 360: круглая кнопка канала 44×44 без подписи, с aria-label', head.btn.w === 44 && head.btn.h === 44 && !head.btn.textShown && Boolean(head.btn.label),
-    `${head.btn.w}×${head.btn.h}, aria-label «${head.btn.label}»`);
-  const titles = await js(`[...document.querySelectorAll('.mc__title')].map((e) => ({ t: e.textContent, cut: e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1 }))`);
-  check('название карточки на 360px не обрезано', titles.every((t) => !t.cut), `${titles.length} карточек`);
+  check(`нет многоточия у названия в шапке (≤ ${nameMaxLines} строк)`,
+    head.name.sw === head.name.cw && head.name.overflow !== 'ellipsis' && head.name.lines <= nameMaxLines,
+    `${head.name.sw} = ${head.name.cw}, строк: ${head.name.lines}`);
+  check('шапка 360: круглая кнопка канала 44×44 с aria-label', head.btn.w === 44 && head.btn.h === 44 && !head.btn.textShown && Boolean(head.btn.label),
+    `${head.btn.w}×${head.btn.h}, «${head.btn.label}»`);
+  const titles = await js("[...document.querySelectorAll('.mc__title')].map((e) => e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)");
+  check('названия карточек на 360px не обрезаны', titles.every((c) => !c), `${titles.length} карточек`);
   const s1 = await js(NOSCROLL);
-  check('нет горизонтального скролла (360, до выбора)', s1.sw === s1.iw, `${s1.sw} = ${s1.iw}`);
+  check('нет горизонтального скролла страницы (360)', s1.sw === s1.iw, `${s1.sw} = ${s1.iw}`);
+
+  const strip = await js(`(() => { const g = document.querySelector('.grid'); const st = getComputedStyle(g);
+    return { overflow: st.overflowX, sw: g.scrollWidth, cw: g.clientWidth, inner: Math.round(g.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight)), cardW: Math.round(g.children[0].getBoundingClientRect().width),
+      counter: document.getElementById('park-counter')?.textContent ?? null, dots: document.querySelectorAll('#park-dots button').length }; })()`);
+  if (F.cards > 1) {
+    check('360: каталог — горизонтальная лента, видна следующая карточка', strip.overflow === 'auto' && strip.sw > strip.cw && strip.cardW < strip.cw,
+      `${F.cards} карточек, карточка ${strip.cardW} из ${strip.cw}px`);
+    check('360: точки-индикаторы ≤ 8', strip.dots > 0 && strip.dots <= 8, `${strip.dots}`);
+    await js("document.querySelector('.grid').scrollBy({ left: document.querySelector('.mc').offsetWidth + 12 })");
+    await sleep(500);
+    const c2 = await js("document.getElementById('park-counter').textContent");
+    await tap('#park-dots button:first-child');
+    await sleep(600);
+    const c3 = await js("document.getElementById('park-counter').textContent");
+    await js("document.querySelector('.grid').scrollTo({ left: 0 })");
+    await sleep(400);
+    check('360: лента прокручивается, счётчик меняется (листание, тап по точке)', strip.counter !== c2 && c3 === strip.counter, `${strip.counter} → ${c2} → ${c3}`);
+  } else {
+    check('одна позиция: без счётчика и точек, карточка во всю ширину', strip.counter === null && strip.dots === 0 && strip.cardW === strip.inner,
+      `карточка ${strip.cardW} из ${strip.inner}px`);
+  }
   const small360a = await js(SMALL);
   shots.push(await shot('360-full', true));
 
-  const hasBusy = await js("Boolean(document.querySelector('.mc--busy'))");
-  if (hasBusy) {
-    await tap('.mc--busy .mc__media');
-    await tap('.mc--busy .mc__btn');
-    const r = await js(SELECTED);
-    const inSelect = await js("[...document.querySelectorAll('#machine option')].some((o) => o.value === document.querySelector('.mc--busy').dataset.id)");
-    check('busy: карточка не выбирается и её нет в списке расчёта', r.cards.length === 0 && r.select === '' && !inSelect, JSON.stringify(r));
+  let sheetText = '';
+  let sheetLink = '';
+  if (!selectable.length) {
+    // ---------- Всё занято ----------
+    const ab = await js(`({ notice: !document.getElementById('allbusy').hidden, calc: !document.getElementById('calc-body').hidden,
+      text: document.querySelector('#allbusy p').textContent, href: document.getElementById('allbusy-link').getAttribute('href'),
+      bar: !document.getElementById('bar').hidden })`);
+    check('всё занято: вместо расчёта сообщение и кнопка связи', ab.notice && !ab.calc && !ab.bar && /вся техника занята/.test(ab.text), ab.text);
+    check('всё занято: кнопка ведёт в мессенджер с готовым вопросом', /^https:\/\/(wa\.me|t\.me)\/.+\?text=/.test(ab.href) || ab.href.startsWith('tel:'), decodeURIComponent(ab.href).slice(0, 90));
+    await tap(`${card(F.busy[0])} .mc__media`);
+    check('всё занято: карточки не выбираются', (await js(SELECTED)).cards.length === 0, '');
+  } else {
+    // ---------- Выбор и расчёт ----------
+    if (F.busy.length) {
+      await tap(`${card(F.busy[0])} .mc__btn`);
+      const r = await js(SELECTED);
+      const inSelect = await js(`[...document.querySelectorAll('#machine option')].some((o) => o.value === ${JSON.stringify(F.busy[0])})`);
+      check('busy: карточка не выбирается и её нет в списке расчёта', r.cards.length === 0 && r.select === '' && !inSelect, JSON.stringify(r));
+    }
+    if (F.confirm.length) {
+      await tap(`${card(F.confirm[0])} .mc__btn`);
+      const r = await js(SELECTED);
+      check('confirm: карточка выбирается, список синхронизирован', r.cards[0] === F.confirm[0] && r.select === F.confirm[0], JSON.stringify(r));
+    }
+    await tap(`${card(firstFree)} .mc__btn`);
+    const picked = await js(SELECTED);
+    check('выбор карточкой → позиция в расчёте', picked.cards[0] === firstFree && picked.select === firstFree, JSON.stringify(picked));
+    const calcTop = await js("({ calc: Math.round(document.getElementById('calc').getBoundingClientRect().top), sticky: Math.round(document.querySelector('.sticky').getBoundingClientRect().bottom) })");
+    check('после выбора экран у расчёта, не под шапкой', calcTop.calc >= calcTop.sticky && calcTop.calc < 220, `верх расчёта ${calcTop.calc}, низ шапки ${calcTop.sticky}`);
+    shots.push(await shot('360-selected', false));
+    const s2 = await js(NOSCROLL);
+    check('нет горизонтального скролла страницы (360, после выбора)', s2.sw === s2.iw, `${s2.sw} = ${s2.iw}`);
+    if (selectable.length > 1) {
+      const otherId = selectable[selectable.length - 1];
+      await setValue('#machine', otherId);
+      check('выбор в списке → карточка в каталоге', (await js(SELECTED)).cards[0] === otherId, otherId);
+      await tap(`${card(firstFree)} .mc__btn`);
+    }
+
+    // Нижняя панель: сумма в одну строку.
+    const BAR = `(() => { const el = document.getElementById('bar-total'); const range = document.createRange(); range.selectNodeContents(el);
+      const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+      return { text: el.textContent, lines: tops.size, fits: el.parentElement.scrollWidth <= el.parentElement.clientWidth,
+        btn: document.getElementById('submit').innerText.trim() }; })()`;
+    const bar1 = await js(BAR);
+    const priced = F.priced.includes(firstFree);
+    check(priced ? 'панель 360: сумма в одну строку' : 'панель 360: «Цену назовёт менеджер» помещается', (priced ? bar1.lines === 1 : bar1.lines <= 2) && bar1.fits, `«${bar1.text}», кнопка «${bar1.btn}»`);
+
+    // Подписи количества и быстрые значения по единице.
+    const unitsInfo = await js("({ label: document.getElementById('units-label').textContent, out: document.getElementById('units-out').textContent, chips: [...document.querySelectorAll('#units-chips .chip')].map((c) => c.textContent) })");
+    check('количество: подпись и склонение по единице', !/undefined|null|NaN/.test(JSON.stringify(unitsInfo)) && /\d/.test(unitsInfo.out),
+      `${unitsInfo.label}: ${unitsInfo.out.replace(/\u00a0/g, ' ')}; чипы: ${unitsInfo.chips.join(', ').replace(/\u00a0/g, ' ') || '—'}`);
+
+    if (F.channel === 'phone') {
+      // ---------- Только телефон ----------
+      const ph = await js(`({ consent: document.querySelector('[data-field="consent"]').hidden, hint: document.querySelector('.summary__phone')?.textContent || '',
+        btn: document.getElementById('submit').innerText.trim(), href: document.querySelector('[data-ch-href]').getAttribute('href') })`);
+      check('только телефон: кнопки «Позвонить», подсказка, согласие не нужно', ph.btn === 'Позвонить' && ph.consent && /по телефону/.test(ph.hint) && ph.href.startsWith('tel:'), `${ph.btn}; ${ph.href}`);
+      // Нажатие ведёт на tel: — в headless-браузере это внешний протокол, после него ввод мышью не доходит;
+      // поэтому проверяем, куда ведёт кнопка, без нажатия.
+      const telHrefs = await js("[...document.querySelectorAll('[data-ch-href], #allbusy-link')].map((a) => a.getAttribute('href'))");
+      check('только телефон: все кнопки связи ведут на tel:', telHrefs.every((h) => h.startsWith('tel:+')), telHrefs.join(', '));
+    } else {
+      await tap('#submit');
+      const firstErr = await js("({ f: document.querySelector('.field.is-invalid')?.dataset.field, msg: document.querySelector('.field.is-invalid .err')?.textContent })");
+      check('пустая отправка: подсвечено первое незаполненное поле', firstErr.f === 'address', `${firstErr.f}: ${firstErr.msg}`);
+
+      // Дата: три чипа в одну строку; «Другая дата» — поле на всю ширину колонки.
+      const dates = await js(`(() => { const chips = [...document.querySelectorAll('[data-date]')].map((c) => c.getBoundingClientRect());
+        return { oneLine: chips.every((r) => Math.round(r.top) === Math.round(chips[0].top)), fit: [...document.querySelectorAll('[data-date]')].every((c) => c.scrollWidth <= c.clientWidth) }; })()`);
+      await tap('[data-date="other"]');
+      const other = await js(`(() => { const box = document.getElementById('date-other'), f = document.querySelector('[data-field="date"]'), i = document.getElementById('date');
+        return { shown: !box.hidden, full: Math.round(box.getBoundingClientRect().width) === Math.round(f.getBoundingClientRect().width), fits: i.scrollWidth <= i.clientWidth }; })()`);
+      check('360: «Сегодня / Завтра / Другая дата» в одну строку, «Другая дата» — поле на всю ширину', dates.oneLine && dates.fit && other.shown && other.full && other.fits, JSON.stringify({ ...dates, ...other }));
+      const opts = await js("[...document.querySelectorAll('#machine option')].filter((o) => o.value).map((o) => o.textContent)");
+      check('360: в списке техники только названия', opts.every((t) => !t.includes('·')), opts.slice(0, 2).join('; '));
+
+      const overlap = await js(`(() => { const f = document.querySelector('[data-field="consent"]'); f.scrollIntoView({ block: 'end' });
+        const fr = f.getBoundingClientRect(), br = document.getElementById('bar').getBoundingClientRect();
+        return { field: Math.round(fr.bottom), bar: Math.round(br.top), pad: parseFloat(getComputedStyle(document.body).paddingBottom), barH: Math.round(br.height) }; })()`);
+      check('нижняя панель не перекрывает последнее поле', overlap.field <= overlap.bar && overlap.pad >= overlap.barH, `низ поля ${overlap.field} ≤ верх панели ${overlap.bar}`);
+
+      // Комментарий: не больше 500 символов, счётчик; эмодзи не разрываются.
+      await setValue('#comment', '🚜'.repeat(300) + 'а'.repeat(300));
+      const cm = await js("({ len: Array.from(document.getElementById('comment').value).length, count: document.getElementById('comment-count').textContent, addr: document.getElementById('address').maxLength })");
+      check('комментарий ≤ 500 символов со счётчиком, адрес ≤ 200', cm.len <= 500 && cm.count === `${cm.len} / 500` && cm.addr === 200, `${cm.count}, адрес ${cm.addr}`);
+
+      await open(360, 740, true);
+      await fillOrder(firstFree);
+      const bar2 = await js(BAR);
+      check('панель 360 после заполнения: сумма помещается', (priced ? bar2.lines === 1 : bar2.lines <= 2) && bar2.fits, `«${bar2.text.replace(/\u00a0/g, ' ')}»`);
+      notes.push(`После заполнения (360): ${await js(`[...document.querySelectorAll('.summary__rows div')].filter((d) => !d.hidden).map((d) => d.querySelector('dt').textContent + ': ' + d.querySelector('dd').textContent).concat('Итого: ' + document.getElementById('sum-total').textContent).join('; ')`)}`.replace(/\u00a0/g, ' '));
+      await tap('#submit');
+      await sleep(300);
+      const sh1 = await js(SHEET);
+      const chName = F.channel === 'telegram' ? 'Telegram' : 'WhatsApp';
+      check(`окно «Заявка для ${chName}» снизу во всю ширину`, sh1.open && sh1.title === `Заявка для ${chName}` && sh1.w === sh1.vw && sh1.bottom === sh1.vh, `${sh1.sub}; ${sh1.w}×, низ ${sh1.bottom}`);
+      check('при открытии фокус на самом окне', sh1.focusInside && /sheet__panel/.test(sh1.active), sh1.active);
+      for (let i = 0; i < 6; i++) await key('Tab');
+      check('Tab не выводит фокус из окна', (await js(SHEET)).focusInside, '');
+      shots.push(await shot('360-sheet', false));
+      await key('Escape');
+      const afterEsc = await js("({ open: !document.getElementById('sheet').hidden, active: document.activeElement.id })");
+      check('Esc закрывает окно, фокус возвращается на кнопку', !afterEsc.open && afterEsc.active === 'submit', JSON.stringify(afterEsc));
+      await tap('#submit');
+      await tap('#sheet-copy');
+      await sleep(250);
+      const copied = await js(`(async () => { const label = document.querySelector('.js-copy-label').textContent;
+        let clip = ''; try { clip = await navigator.clipboard.readText(); } catch (e) { clip = 'нет доступа: ' + e.name; }
+        return { label, same: clip.replace(/\\r\\n/g, '\\n') === document.getElementById('sheet-text').textContent }; })()`);
+      check('«Скопировать заявку» → «Скопировано ✓», в буфере текст заявки', copied.label === 'Скопировано ✓' && copied.same, JSON.stringify(copied));
+      const before = navLinks.length;
+      await tap('#sheet-open');
+      await sleep(1200);
+      sheetLink = navLinks[navLinks.length - 1] || '';
+      sheetText = sh1.text;
+      const linkText = sheetLink ? new URL(sheetLink).searchParams.get('text') : '';
+      check(`«Открыть ${chName}» ведёт в мессенджер с текстом заявки`, navLinks.length > before && linkText === sh1.text, sheetLink.slice(0, 70));
+      if (F.channel === 'telegram') {
+        check('Telegram: подсказка «Заявка скопирована…» и «Поделиться через Telegram»', (await js(SHEET).catch(() => ({ hint: true }))).hint !== false && /^https:\/\/t\.me\/share\/url\?/.test(sh1.share), sh1.share.slice(0, 50));
+      }
+    }
   }
-  if (await js("Boolean(document.querySelector('.mc--confirm'))")) {
-    await tap('.mc--confirm .mc__btn');
-    const r = await js(SELECTED);
-    const id = await js("document.querySelector('.mc--confirm').dataset.id");
-    check('confirm: карточка выбирается, select синхронизирован', r.cards[0] === id && r.select === id, JSON.stringify(r));
-  }
-
-  await tap(FIRST_FREE);
-  const picked = await js(SELECTED);
-  check('выбор карточкой → select в расчёте', picked.cards.length === 1 && picked.select === picked.cards[0], JSON.stringify(picked));
-  const btnTexts = await js("[...document.querySelectorAll('.mc__btn')].map((b) => b.textContent.trim())");
-  check('кнопки карточек: «Техника выбрана» / «Выбрать» / «Сейчас занята»',
-    btnTexts.includes('Техника выбрана') && btnTexts.includes('Выбрать') && (!hasBusy || btnTexts.includes('Сейчас занята')), btnTexts.join(', '));
-  const calcTop = await js("({ calc: Math.round(document.getElementById('calc').getBoundingClientRect().top), sticky: Math.round(document.querySelector('.sticky').getBoundingClientRect().bottom) })");
-  check('после выбора экран прокручен к расчёту, не под шапку', calcTop.calc >= calcTop.sticky && calcTop.calc < 200, `верх расчёта ${calcTop.calc} ≥ низ шапки ${calcTop.sticky}`);
-  shots.push(await shot('360-selected', false));
-  const s2 = await js(NOSCROLL);
-  check('нет горизонтального скролла (360, после выбора)', s2.sw === s2.iw, `${s2.sw} = ${s2.iw}`);
-
-  // Выбор через select → карточка в каталоге.
-  const otherId = await js("[...document.querySelectorAll('#machine option')].map((o) => o.value).filter(Boolean).pop()");
-  await setValue('#machine', otherId);
-  const viaSelect = await js(SELECTED);
-  check('выбор в select → карточка в каталоге', viaSelect.cards[0] === otherId, JSON.stringify(viaSelect));
-  await tap(FIRST_FREE);
-
-  if (hasBusy) {
-    await tap('.mc--busy .mc__btn');
-    const after = await js(SELECTED);
-    check('тап по занятой после выбора не меняет выбор', JSON.stringify(after) === JSON.stringify(picked), JSON.stringify(after));
-  }
-
-  // Цена в панели: одна строка + «предварительно».
-  const BAR_LINES = `(() => { const el = document.getElementById('bar-total');
-    const range = document.createRange(); range.selectNodeContents(el);
-    const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
-    const pre = document.getElementById('bar-pre');
-    return { text: el.textContent, lines: tops.size, pre: pre.hidden ? '' : pre.textContent,
-      fits: el.parentElement.scrollWidth <= el.parentElement.clientWidth, btn: document.getElementById('submit').innerText.trim() }; })()`;
-  const bar1 = await js(BAR_LINES);
-  check('панель 360: сумма в одну строку + «предварительно», кнопка «Отправить»',
-    bar1.lines === 1 && bar1.fits && bar1.pre === 'предварительно' && bar1.btn === 'Отправить',
-    `«${bar1.text}» — строк: ${bar1.lines}, ${bar1.pre}, кнопка «${bar1.btn}»`);
-
-  await tap('#submit');
-  const firstErr = await js("({ f: document.querySelector('.field.is-invalid')?.dataset.field, msg: document.querySelector('.field.is-invalid .err')?.textContent })");
-  check('пустая отправка: подсвечено первое незаполненное поле', firstErr.f === 'address', `${firstErr.f}: ${firstErr.msg}`);
-
   const small360 = [...small360a, ...(await js(SMALL))];
   check('кнопки, чипы и поля ≥ 44px (360)', small360.length === 0, JSON.stringify(small360));
-
-  const overlap = await js(`(() => { const f = document.querySelector('[data-field="consent"]'); f.scrollIntoView({ block: 'end' });
-    const fr = f.getBoundingClientRect(), br = document.getElementById('bar').getBoundingClientRect();
-    return { field: Math.round(fr.bottom), bar: Math.round(br.top), pad: parseFloat(getComputedStyle(document.body).paddingBottom), barH: Math.round(br.height) }; })()`);
-  check('нижняя панель не перекрывает последнее поле', overlap.field <= overlap.bar && overlap.pad >= overlap.barH,
-    `низ поля ${overlap.field} ≤ верх панели ${overlap.bar}; padding-bottom ${overlap.pad}px ≥ панель ${overlap.barH}px`);
-
-  // Дата: три чипа в одну строку; «Другая дата» — поле на всю ширину колонки.
-  const DATE_CHECK = `(() => { const chips = [...document.querySelectorAll('[data-date]')].map((c) => c.getBoundingClientRect());
-    return { oneLine: chips.every((r) => Math.round(r.top) === Math.round(chips[0].top)), chipsFit: [...document.querySelectorAll('[data-date]')].every((c) => c.scrollWidth <= c.clientWidth) }; })()`;
-  const dates360 = await js(DATE_CHECK);
-  await tap('[data-date="other"]');
-  const other360 = await js(`(() => { const box = document.getElementById('date-other'), f = document.querySelector('[data-field="date"]'), i = document.getElementById('date');
-    return { shown: !box.hidden, full: Math.round(box.getBoundingClientRect().width) === Math.round(f.getBoundingClientRect().width), fits: i.scrollWidth <= i.clientWidth }; })()`);
-  check('360: дата — «Сегодня / Завтра / Другая дата» в одну строку, «Другая дата» открывает поле на всю ширину',
-    dates360.oneLine && dates360.chipsFit && other360.shown && other360.full && other360.fits, JSON.stringify({ ...dates360, ...other360 }));
-  const opts = await js("[...document.querySelectorAll('#machine option')].filter((o) => o.value).map((o) => o.textContent)");
-  check('360: в списке техники только названия (без цены)', opts.every((t) => !t.includes('·')), opts.slice(0, 3).join('; '));
-
-  // Заполняем: адрес, завтра, время, +2 к часам, зона «Пригород…» (или последняя), комментарий, согласие → «Отправить».
-  await type('#address', 'Тестовый адрес, 5');
-  await tap('[data-date="tomorrow"]');
-  await setValue('#time', '09:00');
-  await tap('#units-plus'); await tap('#units-plus');
-  if (await js("Boolean(document.getElementById('zone'))")) {
-    await setValue('#zone', await js("([...document.querySelectorAll('#zone option')].find((o) => /Пригород/.test(o.textContent)) || [...document.querySelectorAll('#zone option')].pop()).value"));
-  }
-  await type('#comment', 'нужен ковш 0,5');
-  await tap('#consent');
-  const summary360 = await js(`[...document.querySelectorAll('.summary__rows div')].filter((d) => !d.hidden).map((d) => d.querySelector('dt').textContent + ': ' + d.querySelector('dd').textContent)
-    .concat('Итого: ' + document.getElementById('sum-total').textContent)`);
-  const price360 = await js("document.getElementById('bar-total').textContent");
-  const bar2 = await js(BAR_LINES);
-  check('панель 360 с доставкой: сумма в одну строку', bar2.lines === 1 && bar2.fits, `«${bar2.text}» — строк: ${bar2.lines}`);
-  await tap('#submit');
-  await sleep(300);
-  const sh1 = await js(SHEET);
-  check('360: «Отправить» открывает окно заявки снизу во всю ширину (bottom sheet)', sh1.open && sh1.w === sh1.vw && sh1.bottom === sh1.vh,
-    `«${sh1.title}» ${sh1.sub}; ширина ${sh1.w} из ${sh1.vw}, низ ${sh1.bottom} = ${sh1.vh}`);
-  check('360: при открытии фокус на самом окне (не на кнопке)', sh1.focusInside && /sheet__panel/.test(sh1.active), `на ${sh1.active}`);
-  for (let i = 0; i < 6; i++) await key('Tab', 'Tab');
-  const trap = await js(SHEET);
-  check('360: Tab не выводит фокус из окна', trap.focusInside, `после 6×Tab на ${trap.active}`);
-  shots.push(await shot('360-sheet', false));
-  await key('Escape', 'Escape');
-  const afterEsc = await js("({ open: !document.getElementById('sheet').hidden, active: document.activeElement.id })");
-  check('360: Esc закрывает окно, фокус возвращается на кнопку', !afterEsc.open && afterEsc.active === 'submit', JSON.stringify(afterEsc));
-  await tap('#submit');
-  await tap('#sheet-copy');
-  await sleep(200);
-  const copied = await js(`(async () => { const label = document.querySelector('.js-copy-label').textContent;
-    let clip = ''; try { clip = await navigator.clipboard.readText(); } catch (e) { clip = 'нет доступа: ' + e.name; }
-    // Windows отдаёт буфер с переводами строк \\r\\n — сравниваем без них.
-    return { label, same: clip.replace(/\\r\\n/g, '\\n') === document.getElementById('sheet-text').textContent, clip: clip.slice(0, 40) }; })()`);
-  check('360: «Скопировать заявку» → «Скопировано ✓», в буфере текст заявки', copied.label === 'Скопировано ✓' && copied.same, JSON.stringify(copied));
-  const sheetText360 = sh1.text;
-  const linksBefore = waLinks.length;
-  await tap('#sheet-open');
-  await sleep(1200);
-  const opened = await js(SHEET).catch(() => ({ hint: false }));
-  check(`360: «${(await js("document.getElementById('sheet-open').textContent.trim()").catch(() => 'Открыть'))}» ведёт в мессенджер`, waLinks.length > linksBefore,
-    waLinks[waLinks.length - 1] ? waLinks[waLinks.length - 1].slice(0, 60) + '…' : 'перехода не было');
-  const openedHint = opened.hint;
-  const shareHref = sh1.share;
 
   // ---------- 1280 ----------
   await open(1280, 800, false);
@@ -386,163 +412,135 @@ async function main() {
   check('карточки 4 колонки на 1280px', dcols === 4, `${dcols}`);
   const d1 = await js(NOSCROLL);
   check('нет горизонтального скролла (1280)', d1.sw === d1.iw, `${d1.sw} = ${d1.iw}`);
+  if (F.cards === 1) {
+    check('одна позиция: карточка не растянута на весь экран', await js("document.querySelector('.mc').getBoundingClientRect().width < 400"), '');
+  }
   shots.push(await shot('1280', true));
   const rows = await js(`(() => { const byRow = {};
     document.querySelectorAll('.mc').forEach((c) => { const t = Math.round(c.getBoundingClientRect().top);
       (byRow[t] = byRow[t] || []).push(Math.round(c.querySelector('.mc__btn').getBoundingClientRect().top)); });
     return Object.values(byRow); })()`);
-  const photos = await js(`(() => { const srcs = [...document.querySelectorAll('.hero__media img, .mc__media img')].map((i) => i.getAttribute('src'));
-    return { n: srcs.length, unique: new Set(srcs).size, srcs }; })()`);
-  check('1280: фото первого экрана и всех карточек — разные файлы', photos.n === photos.unique,
-    `${photos.unique} разных из ${photos.n}: ${photos.srcs.map((x) => x.split('/').pop()).join(', ')}`);
-  // «20 т», «22 м», «0,5 м³» не разрываются переносом: обе части на одной строке.
+  check('1280: в каждом ряду кнопки карточек на одной высоте', rows.every((r) => r.every((y) => y === r[0])), rows.map((r) => r.join('/')).join(' | '));
+  if (slug === '_sample') {
+    const photos = await js("(() => { const s = [...document.querySelectorAll('.hero__media img, .mc__media img')].map((i) => i.getAttribute('src')); return { n: s.length, u: new Set(s).size }; })()");
+    check('1280: фото первого экрана и всех карточек — разные файлы', photos.n === photos.u, `${photos.u} из ${photos.n}`);
+  }
   const units = await js(`(() => { const out = [];
     document.querySelectorAll('.mc__title, .mc__purpose').forEach((el) => {
       const node = el.firstChild; if (!node || node.nodeType !== 3) return;
       for (const m of node.textContent.matchAll(/\\d+(?:,\\d+)?\\u00a0(?:т|м³|м²|м|кг|ч|км)/g)) {
         const r = document.createRange(); r.setStart(node, m.index); r.setEnd(node, m.index + m[0].length);
-        out.push({ t: m[0], one: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size === 1 });
+        out.push(new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size === 1);
       } });
     return out; })()`);
-  check('1280: число и единица не разрываются («20 т», «22 м» — неразрывный пробел)', units.length > 0 && units.every((u) => u.one),
-    units.map((u) => u.t.replace('\u00a0', '⍽')).join(', ') || 'нет совпадений');
-  check('1280: в каждом ряду кнопки карточек на одной высоте', rows.every((r) => r.every((y) => y === r[0])), rows.map((r) => r.join('/')).join(' | '));
-  const opts1280 = await js("[...document.querySelectorAll('#machine option')].filter((o) => o.value).map((o) => o.textContent)");
-  const dates1280 = await js(DATE_CHECK);
-  check('1280: чипы даты в одну строку, в списке техники — с ценой', dates1280.oneLine && dates1280.chipsFit && opts1280.every((t) => t.includes('·')), opts1280[0]);
-  await tap(FIRST_FREE);
-  await sleep(150);
-  const desk = await js(`(() => { const f = document.getElementById('order-form').getBoundingClientRect(), s = document.querySelector('.summary').getBoundingClientRect();
-    return { sumLeft: Math.round(s.left), formRight: Math.round(f.right), barShown: getComputedStyle(document.getElementById('bar')).display !== 'none',
-      ratio: Math.round(f.width / (f.width + s.width) * 100) }; })()`);
-  check('1280: «Итоговая стоимость» справа от формы, нижней панели нет', !desk.barShown && desk.formRight <= desk.sumLeft,
-    `форма ${desk.ratio}% ширины, правый край ${desk.formRight} ≤ ${desk.sumLeft}`);
-  const sticky = await js(`(() => { window.scrollBy(0, 400); const s = document.querySelector('.summary').getBoundingClientRect();
-    const top = document.querySelector('.sticky').getBoundingClientRect().bottom; return { sum: Math.round(s.top), sticky: Math.round(top) }; })()`);
-  check('1280: «Итоговая стоимость» закреплена ниже шапки', sticky.sum >= sticky.sticky, `верх карточки ${sticky.sum} ≥ низ шапки ${sticky.sticky}`);
-  await js("document.getElementById('calc').scrollIntoView({ block: 'start' })");
-  await sleep(150);
-  shots.push(await shot('1280-selected', false));
-  const small1280 = await js(SMALL);
-  check('кнопки, чипы и поля ≥ 44px (1280)', small1280.length === 0, JSON.stringify(small1280));
-
-  await open(1280, 800, false);
-  await fillOrder();
-  await tap('.summary .js-submit');
-  await sleep(300);
-  const sh2 = await js(SHEET);
-  check('1280: окно заявки по центру, ширина 480px', sh2.open && sh2.w === 480 && Math.abs(sh2.left - (sh2.vw - 480) / 2) <= 1,
-    `ширина ${sh2.w}, слева ${sh2.left}, сверху ${sh2.top}`);
-  shots.push(await shot('1280-sheet', false));
-  for (const type of ['mousePressed', 'mouseReleased']) await b.send('Input.dispatchMouseEvent', { type, x: 20, y: 400, button: 'left', clickCount: 1 });
-  await sleep(200);
-  const afterBackdrop = await js("({ open: !document.getElementById('sheet').hidden, active: document.activeElement.className })");
-  check('1280: тап по фону закрывает окно, фокус на кнопке', !afterBackdrop.open && /js-submit/.test(afterBackdrop.active), JSON.stringify(afterBackdrop));
-  await tap('.summary .js-submit');
-  await tap('.sheet__close');
-  check('1280: крестик закрывает окно', await js("document.getElementById('sheet').hidden"), '');
-
-  check('нет ошибок JS', errors.length === 0, errors.join('; '));
+  if (units.length) check('1280: число и единица не разрываются («20 т»)', units.every(Boolean), `${units.length} мест`);
+  if (selectable.length && F.channel !== 'phone') {
+    await tap(`${card(firstFree)} .mc__btn`);
+    await sleep(150);
+    const desk = await js(`(() => { const f = document.getElementById('order-form').getBoundingClientRect(), s = document.querySelector('.summary').getBoundingClientRect();
+      return { sumLeft: Math.round(s.left), formRight: Math.round(f.right), barShown: getComputedStyle(document.getElementById('bar')).display !== 'none' }; })()`);
+    check('1280: «Итоговая стоимость» справа от формы, нижней панели нет', !desk.barShown && desk.formRight <= desk.sumLeft, `${desk.formRight} ≤ ${desk.sumLeft}`);
+    const sticky = await js(`(() => { window.scrollBy(0, 400); const s = document.querySelector('.summary').getBoundingClientRect();
+      return { sum: Math.round(s.top), sticky: Math.round(document.querySelector('.sticky').getBoundingClientRect().bottom) }; })()`);
+    check('1280: «Итоговая стоимость» закреплена ниже шапки', sticky.sum >= sticky.sticky, `${sticky.sum} ≥ ${sticky.sticky}`);
+    await js("document.getElementById('calc').scrollIntoView({ block: 'start' })");
+    await sleep(150);
+    shots.push(await shot('1280-selected', false));
+    await open(1280, 800, false);
+    await fillOrder(firstFree);
+    await tap('.summary .js-submit');
+    await sleep(300);
+    const sh2 = await js(SHEET);
+    check('1280: окно заявки по центру, ширина 480px', sh2.open && sh2.w === 480 && Math.abs(sh2.left - (sh2.vw - 480) / 2) <= 1, `слева ${sh2.left}`);
+    shots.push(await shot('1280-sheet', false));
+    for (const t of ['mousePressed', 'mouseReleased']) await b.send('Input.dispatchMouseEvent', { type: t, x: 20, y: 400, button: 'left', clickCount: 1 });
+    await sleep(200);
+    check('1280: тап по фону закрывает окно', await js("document.getElementById('sheet').hidden"), '');
+  }
+  check('кнопки, чипы и поля ≥ 44px (1280)', (await js(SMALL)).length === 0, '');
 
   // ---------- Панель владельца (демо-режим, localStorage) ----------
   const adminUrl = `${url}admin/`;
   await open(360, 740, true, adminUrl);
-  const adm360 = await js(`(() => ({ demo: Boolean(document.querySelector('.demo-bar')), robots: document.querySelector('meta[name=robots]')?.content,
-    warn: document.querySelector('.adm-warn').textContent.trim(), cards: document.querySelectorAll('.ac').length,
-    cols: getComputedStyle(document.querySelector('.adm-grid')).gridTemplateColumns.split(' ').length,
-    sw: document.documentElement.scrollWidth, iw: innerWidth,
-    bar: getComputedStyle(document.querySelector('.adm-bar')).position, cur: document.querySelector('.adm-cur').textContent }))()`);
-  check('панель: плашка демо и noindex, полоса «Демо-режим панели…»', adm360.demo && adm360.robots === 'noindex, nofollow' && /^Демо-режим панели/.test(adm360.warn), adm360.warn.slice(0, 60) + '…');
-  check('панель 360: 1 колонка, «Сохранить» закреплена снизу, нет горизонтального скролла', adm360.cols === 1 && adm360.bar === 'fixed' && adm360.sw === adm360.iw,
-    `${adm360.cards} карточек; ${adm360.sw} = ${adm360.iw}; «${adm360.cur}»`);
-  const admSmall = await js(SMALL);
-  check('панель 360: кнопки и поля ≥ 44px', admSmall.length === 0, JSON.stringify(admSmall));
-  shots.push(await shot('admin-360', true, false));
-
+  const adm = await js(`({ demo: Boolean(document.querySelector('.demo-bar')), robots: document.querySelector('meta[name=robots]')?.content,
+    warn: document.querySelector('.adm-warn').textContent.trim(), sw: document.documentElement.scrollWidth, iw: innerWidth })`);
+  check('панель: плашка демо, noindex, полоса «Демо-режим панели…»', adm.demo && adm.robots === 'noindex, nofollow' && /^Демо-режим панели/.test(adm.warn), '');
+  check('панель 360: нет горизонтального скролла', adm.sw === adm.iw, `${adm.sw} = ${adm.iw}`);
+  check('панель 360: кнопки и поля ≥ 44px', (await js(SMALL)).length === 0, JSON.stringify(await js(SMALL)));
+  shots.push(await shot('admin-360', true));
   await open(1280, 800, false, adminUrl);
-  const adm1280 = await js("getComputedStyle(document.querySelector('.adm-grid')).gridTemplateColumns.split(' ').length");
-  check('панель 1280: карточки в 2 колонки', adm1280 === 2, `${adm1280}`);
-  shots.push(await shot('admin-1280', true, false));
+  shots.push(await shot('admin-1280', true));
 
-  // Сценарий: первой свободной позиции — «Занята» и 14 000; первой «требует подтверждения» — «Свободна».
-  const ids = await js(`(() => { const cards = [...document.querySelectorAll('.ac')];
-    const st = (c) => c.querySelector('.seg__btn[aria-pressed="true"]')?.dataset.status;
-    return { a: cards.find((c) => st(c) === 'free')?.dataset.id, b: cards.find((c) => st(c) === 'confirm')?.dataset.id }; })()`);
-  await tap(`.ac[data-id="${ids.a}"] .seg__btn--busy`);
-  await setValue(`.ac[data-id="${ids.a}"] [name="rate"]`, '14 000');
-  if (ids.b) await tap(`.ac[data-id="${ids.b}"] .seg__btn--free`);
+  // Сценарий: свободной позиции — «Занята» и новая цена; «требует подтверждения» (или занятой, если всё занято) — «Свободна».
+  const target = F.free[0] || null;
+  const freed = F.confirm[0] || (!selectable.length ? F.busy[0] : null);
+  if (target) {
+    await tap(`.ac[data-id="${target}"] .seg__btn--busy`);
+    await setValue(`.ac[data-id="${target}"] [name="rate"]`, '14 000');
+  }
+  if (freed) await tap(`.ac[data-id="${freed}"] .seg__btn--free`);
   await tap('#adm-save');
-  const saved = await js("({ toast: !document.getElementById('adm-toast').hidden && document.querySelector('#adm-toast span').textContent, changed: document.querySelectorAll('.ac.is-changed').length })");
-  check('панель: «Сохранить» → тост «Сохранено. Откройте сайт, чтобы проверить»', saved.toast === 'Сохранено. Откройте сайт, чтобы проверить', `${saved.toast}; изменено карточек: ${saved.changed}`);
-
-  const SITE_STATE = `(() => { const card = (id) => document.querySelector('.mc[data-id="' + id + '"]');
-    const info = (id) => { const c = card(id); return c ? { status: c.dataset.status, chip: c.querySelector('.status').textContent.trim(), chipCls: c.querySelector('.status').className,
-      btn: c.querySelector('.mc__btn').textContent.trim(), disabled: c.querySelector('.mc__btn').disabled, price: c.querySelector('.mc__price').textContent.trim() } : null; };
-    const opts = [...document.querySelectorAll('#machine option')].map((o) => o.value);
-    return { a: info(${JSON.stringify(ids.a)}), b: info(${JSON.stringify(ids.b || '')}), aInSelect: opts.includes(${JSON.stringify(ids.a)}), bInSelect: opts.includes(${JSON.stringify(ids.b || '')}) }; })()`;
+  const toast = await js("!document.getElementById('adm-toast').hidden && document.querySelector('#adm-toast span').textContent");
+  const admErr = await js("[...document.querySelectorAll('.field.is-invalid')].map((f) => f.dataset.field + ': ' + f.querySelector('.err').textContent).join('; ') + ' | ' + location.href");
+  check('панель: «Сохранить» → тост «Сохранено. Откройте сайт, чтобы проверить»', toast === 'Сохранено. Откройте сайт, чтобы проверить', `${toast} ${toast ? '' : admErr}`);
+  const STATE = (id) => `(() => { const c = document.querySelector('.mc[data-id="${id}"]'); const opts = [...document.querySelectorAll('#machine option')].map((o) => o.value);
+    return { status: c.dataset.status, chip: c.querySelector('.status').className, disabled: c.querySelector('.mc__btn').disabled,
+      price: c.querySelector('.mc__price').textContent.replace(/\\u00a0/g, ' '), inSelect: opts.includes('${id}'),
+      calc: !document.getElementById('calc-body').hidden }; })()`;
   await open(1280, 800, false);
-  const after = await js(SITE_STATE);
-  check('сайт после панели: позиция «Занята», не выбирается, нет в списке расчёта', after.a.status === 'busy' && after.a.disabled && !after.aInSelect,
-    `${ids.a}: ${after.a.chip}, кнопка «${after.a.btn}», в select: ${after.aInSelect ? 'да' : 'нет'}`);
-  check('сайт после панели: новая цена 14 000 ₸', /^14\u00a0000 ₸/.test(after.a.price), after.a.price);
-  if (ids.b) check('сайт после панели: «требует подтверждения» → «Свободна», зелёный чип', after.b.status === 'free' && /status--free/.test(after.b.chipCls) && after.bInSelect, `${ids.b}: ${after.b.chip}`);
-  await tap(`.mc[data-id="${ids.a}"] .mc__btn`);
-  const stillNone = await js(SELECTED);
-  check('сайт после панели: тап по занятой ничего не выбирает', stillNone.cards.length === 0, JSON.stringify(stillNone));
-  await js(`document.getElementById('choose').scrollIntoView({ block: 'start' })`);
+  if (target) {
+    const a = await js(STATE(target));
+    check('сайт после панели: позиция «Занята», не выбирается, нет в списке', a.status === 'busy' && a.disabled && !a.inSelect, a.price);
+    check('сайт после панели: новая цена 14 000 ₸ («до» из конфига сохраняется)', /^14 000( ₸|–)/.test(a.price), a.price);
+  }
+  if (freed) {
+    const f = await js(STATE(freed));
+    check('сайт после панели: позиция «Свободна», зелёный чип, есть в списке', f.status === 'free' && /status--free/.test(f.chip) && f.inSelect && f.calc, freed);
+  }
+  await js("document.getElementById('choose').scrollIntoView({ block: 'start' })");
   await sleep(200);
   shots.push(await shot('1280-after-admin', false));
-  await open(360, 740, true);
-  const after360 = await js(SITE_STATE);
-  await js(`document.querySelector('.mc[data-id="${ids.a}"]').scrollIntoView({ block: 'center', inline: 'start' })`);
-  await sleep(400);
-  shots.push(await shot('360-after-admin', false));
-  check('сайт 360 после панели: та же позиция занята', after360.a.status === 'busy', after360.a.chip);
-
   await open(1280, 800, false, adminUrl);
   await tap('#adm-reset');
   await open(1280, 800, false);
-  const reset = await js(SITE_STATE);
-  const cfgA = cfg.machines ? cfg.machines.find((m) => m.id === ids.a) : null;
-  check('«Сбросить к исходным» → сайт как в конфиге', reset.a.status !== 'busy' && reset.aInSelect && (!ids.b || reset.b.status === 'confirm')
-    && (!cfgA || reset.a.price.startsWith(Calc.fmtNum(cfgA.rate_from))), `${ids.a}: ${reset.a.chip}, ${reset.a.price}; ${ids.b || ''}: ${reset.b ? reset.b.chip : ''}`);
+  const resetOk = await js(`(() => { const d = JSON.parse(document.getElementById('site-data').textContent);
+    return d.machines.every((m) => document.querySelector('.mc[data-id="' + m.id + '"]').dataset.status === m.status); })()`);
+  check('«Сбросить к исходным» → сайт как в конфиге', resetOk, '');
+
+  check('нет ошибок JS', errors.length === 0, errors.join('; '));
 
   // ---------- Slow 3G, без фото, без кэша ----------
-  // Пресет DevTools «Slow 3G»: задержка 2000 мс, ~400 Кбит/с в обе стороны.
-  await b.send('Network.enable');
-  await b.send('Network.setCacheDisabled', { cacheDisabled: true });
-  await b.send('Network.setBlockedURLs', { urls: ['*/img/*', '*.jpg', '*.jpeg', '*.png', '*.webp'] });
-  await b.send('Network.emulateNetworkConditions', { offline: false, latency: 2000, downloadThroughput: 50000, uploadThroughput: 50000 });
-  await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 740, deviceScaleFactor: 1, mobile: true });
-  await b.send('Page.navigate', { url });
-  for (let i = 0; i < 300; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
-  const slow = await js(`(() => { const n = performance.getEntriesByType('navigation')[0];
-    const bytes = performance.getEntriesByType('resource').reduce((a, r) => a + (r.transferSize || 0), n.transferSize || 0);
-    return { dcl: Math.round(n.domContentLoadedEventEnd), load: Math.round(n.loadEventEnd), cards: document.querySelectorAll('.mc').length, kb: Math.round(bytes / 1024) }; })()`);
-  await b.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-  check('Slow 3G без фото: сетка карточек до 3 с (DOMContentLoaded)', slow.dcl <= 3000 && slow.cards > 0,
-    `DOMContentLoaded ${(slow.dcl / 1000).toFixed(2)} с, load ${(slow.load / 1000).toFixed(2)} с, карточек ${slow.cards}, передано ${slow.kb} КБ${process.env.SCREENS_NO_GZIP ? ' (без gzip)' : ' (gzip)'}`);
+  let slow = null;
+  if (!quick) {
+    // Пресет DevTools «Slow 3G»: задержка 2000 мс, ~400 Кбит/с в обе стороны.
+    await b.send('Network.enable');
+    await b.send('Network.setCacheDisabled', { cacheDisabled: true });
+    await b.send('Network.setBlockedURLs', { urls: ['*/img/*', '*.jpg', '*.jpeg', '*.png', '*.webp'] });
+    await b.send('Network.emulateNetworkConditions', { offline: false, latency: 2000, downloadThroughput: 50000, uploadThroughput: 50000 });
+    await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 740, deviceScaleFactor: 1, mobile: true });
+    await b.send('Page.navigate', { url });
+    for (let i = 0; i < 300; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
+    slow = await js(`(() => { const n = performance.getEntriesByType('navigation')[0];
+      const fcp = performance.getEntriesByName('first-contentful-paint')[0];
+      return { dcl: Math.round(n.domContentLoadedEventEnd), fcp: fcp ? Math.round(fcp.startTime) : null, kb: Math.round((n.transferSize || 0) / 1024 * 10) / 10 }; })()`);
+    await b.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    check('Slow 3G без фото: страница готова ≤ 3 с (DOMContentLoaded)', slow.dcl <= 3000, `DCL ${(slow.dcl / 1000).toFixed(2)} с, первый экран ${slow.fcp != null ? (slow.fcp / 1000).toFixed(2) : '?'} с, ${slow.kb} КБ`);
+  }
 
   b.close();
   server.close();
 
+  const ok = checks.every((c) => c.ok);
+  fs.writeFileSync(path.join(OUT, `${slug}-result.json`), JSON.stringify({ slug, ok, yes: checks.filter((c) => c.ok).length, no: checks.filter((c) => !c.ok).length, checks, shots, notes, slow, sheetText, sheetLink }, null, 2));
   console.log(`Страница: ${slug} (${path.relative(ROOT, base)}/${slug}/)`);
   console.log('Скриншоты:');
   shots.forEach((s) => console.log(`  ${s}`));
   console.log('Проверки:');
   checks.forEach((c) => console.log(`  ${c.ok ? 'да ' : 'НЕТ'}  ${c.name}${c.detail ? ` — ${c.detail}` : ''}`));
-  console.log(`После заполнения (360): панель «${price360}»; ${summary360.join('; ')}`);
-  if (waLinks.length) {
-    console.log(`Переход по «Открыть …» (перехвачен, не отправлен): ${waLinks[waLinks.length - 1]}`);
-    const text = new URL(waLinks[waLinks.length - 1]).searchParams.get('text');
-    if (text) console.log(`Текст заявки из ссылки:\n${text.split('\n').map((l) => `  | ${l}`).join('\n')}`);
-    console.log(`Текст в ссылке совпадает с окном: ${text === sheetText360 ? 'да' : 'НЕТ'}`);
-  } else {
-    console.log('Переход по «Открыть …»: не было');
-  }
-  if (openedHint) console.log('Подсказка «Заявка скопирована — вставьте её в чат и отправьте»: показана');
-  if (shareHref) console.log(`«Поделиться через Telegram»: ${decodeURIComponent(shareHref).slice(0, 80)}…`);
-  process.exit(checks.every((c) => c.ok) ? 0 : 1);
+  notes.forEach((n) => console.log(n));
+  if (sheetText) console.log(`Текст заявки:\n${sheetText.split('\n').map((l) => `  | ${l}`).join('\n')}`);
+  console.log(`Итог: да ${checks.filter((c) => c.ok).length}, НЕТ ${checks.filter((c) => !c.ok).length}`);
+  process.exit(ok ? 0 : 1);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

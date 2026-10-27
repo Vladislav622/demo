@@ -1,0 +1,31 @@
+{
+  "demo": true,
+  "slug": "_tg",
+  "name": "Тест: Telegram",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "a",
+      "title": "Экскаватор (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 12000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 4,
+      "status": "free"
+    }
+  ],
+  "zones": [
+    {
+      "title": "Город (тест)",
+      "delivery_from": 5000,
+      "delivery_to": null
+    }
+  ],
+  "city": "Тестовый город",
+  "telegram": "$TEST_TG",
+  "channel": "telegram"
+}

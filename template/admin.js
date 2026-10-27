@@ -47,6 +47,8 @@
       var card = $('.ac[data-id="' + m.id + '"]');
       if (!card) return;
       $('[name="rate"]', card).value = m.rate_from != null ? S.Calc.fmtNum(m.rate_from, ' ') : '';
+      var to = $('[name="rate_to"]', card);
+      if (to) to.value = m.rate_to != null ? S.Calc.fmtNum(m.rate_to, ' ') : '';
       $('[name="min"]', card).value = m.min_units != null ? String(m.min_units) : '';
       setPressed(card, 'data-status', m.status);
     });
@@ -62,7 +64,9 @@
     base.machines.forEach(function (m) {
       var card = $('.ac[data-id="' + m.id + '"]');
       if (!card) return;
+      var to = $('[name="rate_to"]', card);
       var changed = toNumber($('[name="rate"]', card).value) !== m.rate_from
+        || (to && toNumber(to.value) !== m.rate_to)
         || toNumber($('[name="min"]', card).value) !== m.min_units
         || pressed(card, 'data-status') !== m.status;
       card.classList.toggle('is-changed', changed);
@@ -72,8 +76,10 @@
   function collect() {
     var machines = {};
     $$('.ac').forEach(function (card) {
+      var to = $('[name="rate_to"]', card);
       machines[card.dataset.id] = {
         rate_from: toNumber($('[name="rate"]', card).value),
+        rate_to: to ? toNumber(to.value) : null,
         min_units: toNumber($('[name="min"]', card).value),
         status: pressed(card, 'data-status'),
       };

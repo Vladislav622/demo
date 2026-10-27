@@ -1,0 +1,46 @@
+{
+  "demo": true,
+  "slug": "_logo",
+  "name": "Тест: логотип PNG",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "a",
+      "title": "Экскаватор (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 12000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    },
+    {
+      "id": "b",
+      "title": "Погрузчик (тест)",
+      "kind": "loader",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 9000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": null,
+      "status": "free"
+    }
+  ],
+  "zones": [
+    {
+      "title": "Город (тест)",
+      "delivery_from": 5000,
+      "delivery_to": null
+    }
+  ],
+  "city": "Тестовый город",
+  "logo": "img/logo.png",
+  "colors": {
+    "primary": "#f2c94c",
+    "accent": "#ffe08a"
+  }
+}

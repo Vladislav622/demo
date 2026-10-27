@@ -9,7 +9,7 @@
   "address": "",
   "schedule": "Ежедневно 8:00–20:00",
   "phone": "",
-  "whatsapp": "",
+  "whatsapp": "$TEST_WA",
   "telegram": "",
   "channel": "whatsapp",
   "colors": { "primary": "", "accent": "" },

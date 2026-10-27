@@ -14,7 +14,7 @@
 <!--if:demo-->  <div class="demo-bar" role="note">Демо-концепт, не официальный сайт, удалим по первой просьбе</div>
 <!--/if:demo-->  <header class="top">
     <div class="wrap top__in">
-      <a class="brand" href="#top">
+      <a class="brand{{brand_class}}" href="#top">
         <span class="brand__logo">{{{logo_html}}}</span>
         <span class="brand__text">
           <span class="brand__name">{{name}}</span>
@@ -70,11 +70,12 @@
         </div>
 <!--if:park_note-->        <p class="sec-note">{{park_note}}</p>
 <!--/if:park_note-->      </div>
-      <p class="park-counter" id="park-counter" aria-live="polite">1 / {{machine_count}}</p>
-      <div class="grid" id="park">
+<!--if:many_cards-->      <p class="park-counter" id="park-counter" aria-live="polite">1 / {{machine_count}}</p>
+<!--/if:many_cards-->      <div class="grid{{grid_class}}" id="park">
 {{{machine_cards}}}
       </div>
-      <div class="park-dots" id="park-dots" role="group" aria-label="Листать технику"></div>
+<!--if:many_cards-->      <div class="park-dots" id="park-dots" role="group" aria-label="Листать технику"></div>
+<!--/if:many_cards-->
     </div>
   </section>
 
@@ -87,7 +88,11 @@
           <p class="sec-sub">Заполните параметры — сумма пересчитается автоматически</p>
         </div>
       </div>
-      <div class="calc">
+      <div class="card allbusy" id="allbusy"{{{allbusy_attr}}}>
+        <p>Сейчас вся техника занята — напишите, подберём ближайшую дату</p>
+        <a class="btn btn--accent" id="allbusy-link" href="{{channel_href}}"><span class="ico-slot" data-ch-icon>{{{channel_icon}}}</span><span data-ch-label>{{channel_label}}</span></a>
+      </div>
+      <div class="calc" id="calc-body"{{{calc_attr}}}>
         <form class="card form" id="order-form" novalidate>
           <div class="field" data-field="machine">
             <label class="field__label" for="machine">Выбранная техника</label>
@@ -102,7 +107,7 @@
 
           <div class="field" data-field="address">
             <label class="field__label" for="address">Адрес объекта</label>
-            <div class="ctl">{{{icon_pin_ctl}}}<input class="input" id="address" name="address" type="text" autocomplete="street-address" placeholder="Улица, дом или ориентир"></div>
+            <div class="ctl">{{{icon_pin_ctl}}}<input class="input" id="address" name="address" type="text" maxlength="200" autocomplete="street-address" placeholder="Улица, дом или ориентир"></div>
             <p class="err" hidden></p>
           </div>
 
@@ -115,6 +120,7 @@
                 <button type="button" class="chip" data-date="other" aria-pressed="false">Другая дата</button>
               </div>
               <div class="ctl date-other" id="date-other" hidden>{{{icon_calendar_ctl}}}<input class="input" id="date" name="date" type="date" aria-label="Дата начала работ"></div>
+              <p class="hint" id="date-hint" hidden>Уже вечер — менеджер уточнит, успеют ли подать технику сегодня</p>
               <p class="err" hidden></p>
             </div>
             <div class="field" data-field="time">
@@ -149,23 +155,24 @@
 
           <div class="field" data-field="comment">
             <label class="field__label" for="comment">Комментарий</label>
-            <div class="ctl ctl--area">{{{icon_comment_ctl}}}<textarea class="input" id="comment" name="comment" rows="3" placeholder="Например: нужен ковш, подъезд со двора"></textarea></div>
+            <div class="ctl ctl--area">{{{icon_comment_ctl}}}<textarea class="input" id="comment" name="comment" rows="3" maxlength="500" placeholder="Например: нужен ковш, подъезд со двора"></textarea></div>
+            <p class="counter" id="comment-count">0 / 500</p>
           </div>
 
           <div class="row">
             <div class="field" data-field="name">
               <label class="field__label" for="client_name">Имя <span class="opt">необязательно</span></label>
-              <div class="ctl">{{{icon_user_ctl}}}<input class="input" id="client_name" name="client_name" type="text" autocomplete="name"></div>
+              <div class="ctl">{{{icon_user_ctl}}}<input class="input" id="client_name" name="client_name" type="text" maxlength="60" autocomplete="name"></div>
             </div>
             <div class="field" data-field="phone">
               <label class="field__label" for="client_phone">Телефон <span class="opt">необязательно</span></label>
-              <div class="ctl">{{{icon_phone_ctl}}}<input class="input" id="client_phone" name="client_phone" type="tel" inputmode="tel" autocomplete="tel"></div>
+              <div class="ctl">{{{icon_phone_ctl}}}<input class="input" id="client_phone" name="client_phone" type="tel" maxlength="25" inputmode="tel" autocomplete="tel"></div>
               <p class="hint">Необязательно — если удобнее, чтобы перезвонили</p>
               <p class="err" hidden></p>
             </div>
           </div>
 
-          <div class="field" data-field="consent">
+          <div class="field" data-field="consent"{{{consent_attr}}}>
             <label class="check">
               <input type="checkbox" id="consent" name="consent">
               <span>Согласен на обработку персональных данных для связи по заявке</span>
@@ -194,7 +201,8 @@
           </div>
           <p class="summary__pre" id="sum-pre" hidden>предварительно</p>
 <!--if:price_note-->          <p class="summary__note">{{price_note}}</p>
-<!--/if:price_note-->          <button type="button" class="btn btn--accent btn--block js-submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span data-ch-send>{{send_label}}</span>{{{icon_right}}}</button>
+<!--/if:price_note--><!--if:is_phone-->          <p class="summary__phone">Заявки принимаем по телефону: нажмите «Позвонить» и назовите технику, адрес и дату из расчёта.</p>
+<!--/if:is_phone-->          <button type="button" class="btn btn--accent btn--block js-submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span data-ch-send>{{send_label}}</span>{{{icon_right}}}</button>
         </aside>
       </div>
     </div>
@@ -242,7 +250,7 @@
 <div class="bar" id="bar" hidden>
   <div class="bar__in">
     <p class="bar__price"><span class="js-total" id="bar-total"></span><small id="bar-pre">предварительно</small></p>
-    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span class="bar__long" data-ch-send>{{send_label}}</span><span class="bar__short">Отправить</span></button>
+    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span class="bar__long" data-ch-send>{{send_label}}</span><span class="bar__short">{{send_short}}</span></button>
   </div>
 </div>
 
@@ -261,12 +269,13 @@
       <div class="bubble"><p class="bubble__text" id="sheet-text"></p><span class="bubble__time">сейчас {{{icon_checks}}}</span></div>
     </div>
     <textarea class="sheet__area" id="sheet-area" tabindex="-1" aria-hidden="true" readonly hidden></textarea>
+    <p class="sheet__warn" id="sheet-warn" hidden>Комментарий длинный — он скопирован целиком, вставьте его в чат</p>
     <p class="sheet__hint" id="sheet-hint" role="status" hidden>Заявка скопирована — вставьте её в чат и отправьте</p>
     <div class="sheet__actions">
       <button type="button" class="btn btn--outline" id="sheet-copy">{{{icon_copy}}}<span class="js-copy-label">Скопировать заявку</span></button>
       <button type="button" class="btn btn--channel" id="sheet-open"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span data-ch-open>{{open_label}}</span>{{{icon_external}}}</button>
     </div>
-<!--if:is_telegram-->    <a class="sheet__share" id="sheet-share" href="#" target="_blank" rel="noopener">{{{icon_share}}}Поделиться через Telegram</a>
+<!--if:is_telegram-->    <a class="sheet__share" id="sheet-share" href="#" target="_blank" rel="noopener noreferrer">{{{icon_share}}}Поделиться через Telegram</a>
 <!--/if:is_telegram-->  </div>
 </div>
 

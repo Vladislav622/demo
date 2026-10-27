@@ -1,0 +1,142 @@
+/* Общие стили сайта и панели: цвета, шапка, кнопки, поля. Сначала телефон, потом 560 / 768 / 900 / 1100px. */
+
+:root {
+  /* По умолчанию; build.js рассчитывает их из colors в конфиге с контрастом текста ≥ 4,5:1. */
+  --primary: #1e211f;
+  --primary-ink: #ffffff;
+  --on-primary-muted: #c2c3c2;
+  --accent: #b5361c;
+  --accent-ink: #ffffff;
+  --accent-text: #b5361c;
+  --accent-on-dark: #e5947f;
+  --accent-soft: #f8ebe8;
+
+  --bg: #f1efea;
+  --surface: #ffffff;
+  --field: #fbfaf8;
+  --text: #1e211f;
+  --muted: #5d615a;
+  --line: #e2dfd8;
+  --soft: #f4f2ee;
+  --error: #b42318;
+
+  --r-card: 16px;
+  --r-btn: 10px;
+  --shadow: 0 1px 2px rgba(30, 33, 31, .05), 0 6px 20px rgba(30, 33, 31, .06);
+  --t: 200ms ease;
+  --bar-h: 76px;
+  --sticky-h: 100px; /* site.js уточняет по фактической высоте плашки и шапки */
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: rgba(0, 0, 0, .06); }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-wrap: break-word;
+}
+
+img { max-width: 100%; display: block; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+h1, h2, h3 { margin: 0; }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
+
+.ui { width: 20px; height: 20px; flex: none; }
+.ui--sm { width: 16px; height: 16px; }
+svg * { vector-effect: non-scaling-stroke; }
+
+:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 2px; }
+
+/* ---------- Плашка демо и шапка ---------- */
+.sticky { position: sticky; top: 0; z-index: 20; }
+
+.demo-bar {
+  background: #fff3c4; color: #4a3b00;
+  font-size: 13px; line-height: 16px; padding: 2px 12px;
+  max-height: 36px; overflow: hidden; text-align: center;
+}
+
+.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+.top__in { display: flex; align-items: center; gap: 12px; min-height: 64px; padding-top: 8px; padding-bottom: 8px; }
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; text-decoration: none; }
+.brand__logo {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; overflow: hidden;
+  background: var(--primary); color: var(--primary-ink);
+}
+.brand__logo img { width: 100%; height: 100%; object-fit: contain; background: var(--surface); }
+.brand__logo .ui { width: 22px; height: 22px; }
+.brand__text { display: flex; flex-direction: column; min-width: 0; }
+.brand__name { font-size: 16px; font-weight: 800; line-height: 1.15; }
+.brand--long .brand__name { font-size: 14px; }
+.brand__tagline { font-size: 12px; line-height: 1.3; color: var(--muted); }
+
+.top__actions { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* ---------- Кнопки ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 50px; padding: 0 20px; border: 0; border-radius: var(--r-btn);
+  font-weight: 700; line-height: 1.2; text-decoration: none; text-align: center; white-space: nowrap; cursor: pointer;
+}
+.btn--accent { background: var(--accent); color: var(--accent-ink); box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent); }
+.btn--outline, .btn--line { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1.5px var(--line); }
+.btn--block { width: 100%; }
+
+/* ---------- Карточки и поля ---------- */
+.card { background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); }
+.row { display: grid; gap: 18px; }
+.field { min-width: 0; }
+.field__label { display: block; margin-bottom: 8px; font-size: 15px; font-weight: 700; }
+.opt { font-weight: 400; font-size: 13px; color: var(--muted); }
+
+.ctl { position: relative; display: block; min-width: 0; }
+.ctl__ico { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.input {
+  display: block; width: 100%; min-height: 50px; padding: 12px 14px 12px 44px;
+  border: 1.5px solid var(--line); border-radius: var(--r-btn);
+  /* 16px и больше: иначе iOS увеличивает страницу при фокусе на поле */
+  background: var(--field); color: var(--text); font: inherit; font-size: 16px;
+}
+select.input { padding-right: 36px; }
+textarea.input { resize: vertical; min-height: 96px; }
+.input::placeholder { color: #6d716a; opacity: 1; }
+.input:focus-visible { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-text) 30%, transparent); }
+/* iOS: пустое поле даты/времени не схлопывается, текст слева */
+input[type="date"].input, input[type="time"].input { -webkit-appearance: none; appearance: none; min-height: 50px; }
+input[type="date"]::-webkit-date-and-time-value, input[type="time"]::-webkit-date-and-time-value { text-align: left; }
+
+.hint { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.err { margin: 8px 0 0; color: var(--error); font-weight: 700; font-size: 15px; }
+.field.is-invalid .input { border-color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); }
+
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 10px; margin: 0 0 10px;
+  font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-text);
+}
+.eyebrow::before { content: ""; width: 24px; height: 2px; background: currentColor; }
+
+@keyframes up { from { transform: translateY(100%); } }
+@keyframes fade { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 399px) {
+  .brand__name { font-size: 15px; }
+  .brand--long .brand__name { font-size: 13px; }
+}
+
+@media (min-width: 768px) {
+  .row { grid-template-columns: 1fr 1fr; align-items: start; }
+}

@@ -1,0 +1,47 @@
+{
+  "demo": true,
+  "slug": "_units",
+  "name": "Тест: единицы",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "smena",
+      "title": "Автокран (смены, тест)",
+      "kind": "crane",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 90000,
+      "rate_to": null,
+      "unit": "смена",
+      "min_units": 2,
+      "status": "free"
+    },
+    {
+      "id": "den",
+      "title": "Трактор (дни, тест)",
+      "kind": "tractor",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 60000,
+      "rate_to": null,
+      "unit": "день",
+      "min_units": 1,
+      "status": "free"
+    },
+    {
+      "id": "reys",
+      "title": "Самосвал (рейсы, тест)",
+      "kind": "dump_truck",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 15000,
+      "rate_to": null,
+      "unit": "рейс",
+      "min_units": 3,
+      "status": "free"
+    }
+  ],
+  "zones": [],
+  "city": "Тестовый город"
+}

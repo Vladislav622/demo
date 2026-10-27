@@ -1,0 +1,46 @@
+{
+  "demo": true,
+  "slug": "_ranges",
+  "name": "Тест: диапазоны",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "a",
+      "title": "Экскаватор (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 12000,
+      "rate_to": 15000,
+      "unit": "час",
+      "min_units": 4,
+      "status": "free"
+    },
+    {
+      "id": "b",
+      "title": "Погрузчик (тест)",
+      "kind": "loader",
+      "photo": "",
+      "purpose": "",
+      "rate_from": 9000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
+    }
+  ],
+  "zones": [
+    {
+      "title": "Пригород (тест)",
+      "delivery_from": 5000,
+      "delivery_to": 8000
+    },
+    {
+      "title": "Город (тест)",
+      "delivery_from": 3000,
+      "delivery_to": null
+    }
+  ],
+  "city": "Тестовый город"
+}

@@ -1,0 +1,29 @@
+{
+  "demo": true,
+  "slug": "_one",
+  "name": "Тест: одна позиция",
+  "currency": "₸",
+  "whatsapp": "$TEST_WA",
+  "machines": [
+    {
+      "id": "a",
+      "title": "Экскаватор-погрузчик (тест)",
+      "kind": "excavator",
+      "photo": "",
+      "purpose": "Единственная позиция (тест)",
+      "rate_from": 12000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 4,
+      "status": "free"
+    }
+  ],
+  "zones": [
+    {
+      "title": "Город (тест)",
+      "delivery_from": 0,
+      "delivery_to": null
+    }
+  ],
+  "city": "Тестовый город"
+}
