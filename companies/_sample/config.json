@@ -1,0 +1,46 @@
+{
+  "demo": true,
+  "slug": "_sample",
+  "name": "Ваша компания",
+  "tagline": "Аренда спецтехники с оператором",
+  "logo": "",
+  "city": "Алматы",
+  "city_in": "в Алматы",
+  "address": "",
+  "schedule": "Ежедневно 8:00–20:00",
+  "phone": "",
+  "whatsapp": "",
+  "telegram": "",
+  "channel": "whatsapp",
+  "colors": { "primary": "", "accent": "" },
+  "hero_title": "Спецтехника на вашем объекте *в день заказа*",
+  "hero_photo": "",
+  "delivery_time_text": "от 2 ч",
+  "park_note": "Вся техника обслужена и выезжает на объект с опытным оператором.",
+  "features": [
+    { "icon": "park", "title": "Собственный парк", "text": "Техника готова к выезду" },
+    { "icon": "clock", "title": "Подача от 2 часов", "text": "По городу и пригороду" },
+    { "icon": "operator", "title": "С оператором", "text": "Опытные машинисты" },
+    { "icon": "calendar", "title": "Без выходных", "text": "Согласуем удобное время" }
+  ],
+  "about": "",
+  "reviews_summary": [],
+  "source_2gis": "",
+  "currency": "₸",
+  "price_note": "Цена предварительная, итог подтвердит менеджер",
+  "machines": [
+    { "id": "ekskavator-pogruzchik", "kind": "excavator", "title": "Экскаватор-погрузчик", "photo": "", "purpose": "Траншеи, котлованы под фундамент, погрузка грунта", "rate_from": 12000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
+    { "id": "gusenichnyi-ekskavator", "kind": "excavator", "title": "Гусеничный экскаватор 20 т", "photo": "", "purpose": "Котлованы, демонтаж и большие объёмы грунта", "rate_from": 22000, "rate_to": null, "unit": "час", "min_units": 8, "status": "busy" },
+    { "id": "mini-pogruzchik", "kind": "loader", "title": "Мини-погрузчик", "photo": "", "purpose": "Уборка территории, планировка, работа в стеснённых местах", "rate_from": 9000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
+    { "id": "frontalnyi-pogruzchik", "kind": "loader", "title": "Фронтальный погрузчик 3 т", "photo": "", "purpose": "Погрузка сыпучих материалов, расчистка снега", "rate_from": 15000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
+    { "id": "avtokran-25", "kind": "crane", "title": "Автокран 25 т", "photo": "", "purpose": "Монтаж конструкций, подъём грузов до 25 т", "rate_from": 20000, "rate_to": null, "unit": "час", "min_units": 4, "status": "confirm" },
+    { "id": "manipulyator-7", "kind": "manipulator", "title": "Манипулятор 7 т", "photo": "", "purpose": "Перевозка и разгрузка блоков, стройматериалов, вагончиков", "rate_from": 13000, "rate_to": null, "unit": "час", "min_units": 3, "status": "free" },
+    { "id": "samosval-25", "kind": "dump_truck", "title": "Самосвал 25 т", "photo": "", "purpose": "Вывоз грунта и мусора, доставка песка и щебня", "rate_from": 12000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
+    { "id": "avtovyshka-22", "kind": "aerial_platform", "title": "Автовышка 22 м", "photo": "", "purpose": "Работы на высоте: фасады, вывески, освещение", "rate_from": 11000, "rate_to": null, "unit": "час", "min_units": 3, "status": "free" }
+  ],
+  "zones": [
+    { "title": "В черте города", "delivery_from": 8000, "delivery_to": null },
+    { "title": "Пригород до 30 км", "delivery_from": 15000, "delivery_to": null },
+    { "title": "Дальше 30 км", "delivery_from": 25000, "delivery_to": null }
+  ]
+}

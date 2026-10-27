@@ -2,15 +2,27 @@
   "demo": true,
   "slug": "_test",
   "name": "ТЕСТОВАЯ КОМПАНИЯ",
+  "tagline": "Тестовый подзаголовок (тест)",
   "logo": "",
   "hero_photo": "img/hero.svg",
+  "hero_title": "Тестовый заголовок *с акцентом (тест)*",
   "city": "Тестовый город",
   "city_in": "в Тестовом городе",
   "address": "Тестовый адрес, 1",
   "schedule": "Пн–Сб 8:00–20:00 (тест)",
   "phone": "",
   "whatsapp": "",
-  "colors": { "primary": "#1f3a5f", "accent": "#f2a900" },
+  "telegram": "",
+  "channel": "whatsapp",
+  "delivery_time_text": "от 2 ч (тест)",
+  "park_note": "Тестовая фраза о парке техники (тест)",
+  "features": [
+    { "icon": "park", "title": "Преимущество 1 (тест)", "text": "Тестовое пояснение" },
+    { "icon": "clock", "title": "Преимущество 2 (тест)", "text": "Тестовое пояснение" },
+    { "icon": "operator", "title": "Преимущество 3 (тест)", "text": "Тестовое пояснение" },
+    { "icon": "calendar", "title": "Преимущество 4 (тест)", "text": "Тестовое пояснение" }
+  ],
+  "colors": { "primary": "", "accent": "" },
   "about": "",
   "reviews_summary": [
     "Тестовый пересказ: техника приехала вовремя.",
@@ -30,19 +42,19 @@
       "rate_to": 15000,
       "unit": "час",
       "min_units": 4,
-      "available": true
+      "status": "free"
     },
     {
       "id": "avtokran",
       "title": "Автокран 25 т (тест)",
       "kind": "crane",
       "photo": "",
-      "purpose": "Тестовая позиция без цены",
+      "purpose": "Тестовая позиция без цены, требует подтверждения",
       "rate_from": null,
       "rate_to": null,
       "unit": "час",
       "min_units": null,
-      "available": true
+      "status": "confirm"
     },
     {
       "id": "samosval",
@@ -54,7 +66,7 @@
       "rate_to": null,
       "unit": "час",
       "min_units": null,
-      "available": false
+      "status": "busy"
     },
     {
       "id": "pogruzchik",
@@ -66,7 +78,19 @@
       "rate_to": 11000,
       "unit": "час",
       "min_units": null,
-      "available": true
+      "status": "free"
+    },
+    {
+      "id": "prochee",
+      "title": "Прочая техника (тест)",
+      "kind": "other",
+      "photo": "",
+      "purpose": "Тестовая позиция: точная цена, без фото и без общего фото",
+      "rate_from": 7000,
+      "rate_to": null,
+      "unit": "час",
+      "min_units": 2,
+      "status": "free"
     }
   ],
   "zones": [

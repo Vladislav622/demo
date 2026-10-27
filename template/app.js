@@ -1,4 +1,4 @@
-// Выбор техники, форма заказа, цена и заявка в WhatsApp.
+// Каталог, расчёт аренды и заявка.
 // Чистые функции (Calc) доступны и в Node: их используют build.js и tests/price.test.js.
 
 (function () {
@@ -13,16 +13,20 @@
     'рейс': ['рейс', 'рейса', 'рейсов'],
   };
 
-  // Форма единицы для числа: 1 час, 2 часа, 5 часов, 11 часов, 21 час. Неизвестная единица — как есть.
-  function plural(n, unit) {
-    var forms = UNIT_FORMS[unit];
-    if (!forms) return unit;
+  // Форма слова для числа: [1, 2–4, 5+]; 11–14 — множественное.
+  function pluralForms(n, forms) {
     var a = Math.abs(n) % 100;
     var b = a % 10;
     if (a >= 11 && a <= 14) return forms[2];
     if (b === 1) return forms[0];
     if (b >= 2 && b <= 4) return forms[1];
     return forms[2];
+  }
+
+  // 1 час, 2 часа, 5 часов, 21 час. Неизвестная единица — как есть.
+  function plural(n, unit) {
+    var forms = UNIT_FORMS[unit];
+    return forms ? pluralForms(n, forms) : unit;
   }
 
   function qty(n, unit) {
@@ -38,30 +42,51 @@
     return m && m.min_units ? m.min_units : 1;
   }
 
-  // Цена по формуле PROMPT_01:
+  // Статус позиции: free | busy | confirm. Старые конфиги: available true → free, false → busy.
+  function statusOf(m) {
+    if (!m) return 'busy';
+    if (m.status === 'free' || m.status === 'busy' || m.status === 'confirm') return m.status;
+    return m.available === false ? 'busy' : 'free';
+  }
+
+  function isSelectable(m) {
+    return statusOf(m) !== 'busy';
+  }
+
+  // Цена по формуле PROMPT_01 с разбивкой на аренду и доставку:
   //   units = max(введено, min_units ?? 1)
-  //   low   = units × rate_from + (zone.delivery_from ?? 0)
-  //   high  = units × (rate_to ?? rate_from) + (zone.delivery_to ?? zone.delivery_from ?? 0)
-  // Занятая позиция → null. Без цены → low/high = null (стоимость назовёт менеджер).
+  //   аренда:   units × rate_from … units × (rate_to ?? rate_from)
+  //   доставка: zone.delivery_from ?? 0 … zone.delivery_to ?? zone.delivery_from ?? 0
+  // Занятая позиция → null. Без цены → суммы null (стоимость назовёт менеджер).
   function calcPrice(m, entered, zone) {
-    if (!m || m.available === false) return null;
+    if (!isSelectable(m)) return null;
     var min = minUnits(m);
     var n = Math.floor(Number(entered));
     if (!isFinite(n) || n < 0) n = 0;
-    var res = { units: Math.max(n, min), belowMin: n < min, low: null, high: null };
+    var units = Math.max(n, min);
+    var res = { units: units, belowMin: n < min, rentLow: null, rentHigh: null, deliveryLow: 0, deliveryHigh: 0, low: null, high: null };
+    if (zone) {
+      res.deliveryLow = zone.delivery_from != null ? zone.delivery_from : 0;
+      res.deliveryHigh = zone.delivery_to != null ? zone.delivery_to : res.deliveryLow;
+    }
     if (m.rate_from == null) return res;
-    var from = zone && zone.delivery_from != null ? zone.delivery_from : 0;
-    var to = zone && zone.delivery_to != null ? zone.delivery_to : from;
-    res.low = res.units * m.rate_from + from;
-    res.high = res.units * (m.rate_to != null ? m.rate_to : m.rate_from) + to;
+    res.rentLow = units * m.rate_from;
+    res.rentHigh = units * (m.rate_to != null ? m.rate_to : m.rate_from);
+    res.low = res.rentLow + res.deliveryLow;
+    res.high = res.rentHigh + res.deliveryHigh;
     return res;
   }
 
-  // «72 000–98 000 ₸»; если low == high — «от 48 000 ₸». Без цены — null.
+  // Точная сумма «30 600 ₸» или диапазон «48 000–60 000 ₸».
+  function moneyRange(lo, hi, currency, sep) {
+    if (lo === hi) return fmtNum(lo, sep) + ' ' + currency;
+    return fmtNum(lo, sep) + '–' + fmtNum(hi, sep) + ' ' + currency;
+  }
+
+  // Итог для показа; без цены — null.
   function priceText(p, currency, sep) {
     if (!p || p.low == null) return null;
-    if (p.low === p.high) return 'от ' + fmtNum(p.low, sep) + ' ' + currency;
-    return fmtNum(p.low, sep) + '–' + fmtNum(p.high, sep) + ' ' + currency;
+    return moneyRange(p.low, p.high, currency, sep);
   }
 
   var WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
@@ -77,48 +102,51 @@
     return String(s || '').replace(/\D/g, '');
   }
 
-  // Первое незаполненное обязательное поле: [поле, подсказка] или null.
+  // Первое незаполненное обязательное поле в порядке формы: [поле, подсказка] или null.
+  // Имя и телефон необязательны; телефон, если введён, — не меньше 10 цифр.
   function validateOrder(o) {
-    if (!o.machine || o.machine.available === false) return ['machine', 'Выберите свободную технику'];
-    if (!(o.units >= minUnits(o.machine))) return ['units', 'Укажите объём'];
-    if (!o.date || o.date < o.today) return ['date', 'Выберите дату'];
+    if (!o.machine || !isSelectable(o.machine)) return ['machine', 'Выберите технику'];
+    if (!String(o.address || '').trim()) return ['address', 'Укажите адрес объекта'];
+    if (!o.date || o.date < o.today) return ['date', 'Выберите дату начала работ'];
+    if (!(o.units >= minUnits(o.machine))) return ['units', 'Укажите количество'];
     if (o.hasZones && !o.zone) return ['zone', 'Выберите зону доставки'];
-    if (!String(o.address || '').trim()) return ['address', 'Укажите адрес'];
-    if (digitsOf(o.phone).length < 10) return ['phone', 'Укажите телефон — минимум 10 цифр'];
+    var phone = digitsOf(o.phone);
+    if (phone && phone.length < 10) return ['phone', 'Проверьте телефон — минимум 10 цифр, или оставьте поле пустым'];
     if (!o.consent) return ['consent', 'Нужно согласие на обработку данных'];
     return null;
   }
 
-  // Текст заявки по шаблону PROMPT_01. Пустые необязательные строки не выводятся.
+  // Текст заявки. Пустые необязательные строки не выводятся.
   function buildMessage(o) {
     var p = calcPrice(o.machine, o.units, o.zone);
-    var range = priceText(p, o.currency, ' ');
-    var name = String(o.name || '').trim();
-    var comment = String(o.comment || '').trim();
-    var lines = [
-      'Здравствуйте! Заявка с сайта.',
-      'Техника: ' + o.machine.title,
-      'Объём: ' + qty(p.units, o.machine.unit),
-      'Дата: ' + formatDate(o.date),
-      'Адрес: ' + String(o.address).trim(),
-    ];
+    var total = priceText(p, o.currency, ' ');
+    var opt = function (v) { return String(v || '').trim(); };
+    var lines = ['Здравствуйте! Заявка с сайта.', 'Техника: ' + o.machine.title];
+    if (statusOf(o.machine) === 'confirm') lines.push('Наличие: требует подтверждения');
+    lines.push('Объём: ' + qty(p.units, o.machine.unit));
+    lines.push('Дата: ' + formatDate(o.date));
+    if (opt(o.time)) lines.push('Время подачи: ' + opt(o.time));
+    lines.push('Адрес: ' + opt(o.address));
     if (o.zone) lines.push('Зона: ' + o.zone.title);
-    if (range) lines.push('Ориентир: ' + range + ' (предварительно)');
-    if (name) lines.push('Имя: ' + name);
-    lines.push('Телефон: ' + String(o.phone).trim());
-    if (comment) lines.push('Комментарий: ' + comment);
+    if (total) lines.push('Ориентир: ' + total + ' (предварительно)');
+    if (opt(o.name)) lines.push('Имя: ' + opt(o.name));
+    if (opt(o.phone)) lines.push('Телефон: ' + opt(o.phone));
+    if (opt(o.comment)) lines.push('Комментарий: ' + opt(o.comment));
     return lines.join('\n');
   }
 
-  // Ссылка для кнопки: wa.me с готовым текстом, без WhatsApp — звонок.
-  function buildLink(text, whatsapp, phone) {
-    if (whatsapp) return 'https://wa.me/' + digitsOf(whatsapp) + '?text=' + encodeURIComponent(text);
-    if (phone) return 'tel:+' + digitsOf(phone);
+  // Ссылка для отправки по главному каналу: WhatsApp — с готовым текстом;
+  // Telegram — чат с владельцем (окно с текстом и копированием — шаг 7); иначе звонок.
+  function buildLink(text, c) {
+    if (c.channel === 'whatsapp' && c.whatsapp) return 'https://wa.me/' + digitsOf(c.whatsapp) + '?text=' + encodeURIComponent(text);
+    if (c.channel === 'telegram' && c.telegram) return 'https://t.me/' + c.telegram;
+    if (c.phone) return 'tel:+' + digitsOf(c.phone);
     return '';
   }
 
   var Calc = {
-    plural: plural, qty: qty, fmtNum: fmtNum, minUnits: minUnits, calcPrice: calcPrice, priceText: priceText,
+    pluralForms: pluralForms, plural: plural, qty: qty, fmtNum: fmtNum, minUnits: minUnits,
+    statusOf: statusOf, isSelectable: isSelectable, calcPrice: calcPrice, moneyRange: moneyRange, priceText: priceText,
     formatDate: formatDate, validateOrder: validateOrder, buildMessage: buildMessage, buildLink: buildLink,
   };
 
@@ -138,24 +166,25 @@
 
   var QUICK_HOURS = [4, 8, 16];
 
-  var state = { machine: null, units: 1, date: '', zone: null };
+  var state = { machine: null, units: 0, date: '', zone: null };
 
-  var orderEl = $('#order');
   var barEl = $('#bar');
+  var machineSelect = $('#machine');
+  var zoneSelect = $('#zone');
   var unitsOut = $('#units-out');
   var unitsMinus = $('#units-minus');
+  var unitsPlus = $('#units-plus');
   var unitsChips = $('#units-chips');
   var unitsHint = $('#units-hint');
   var dateInput = $('#date');
-  var commentToggle = $('#comment-toggle');
-  var comment = $('#comment');
+  var dateOther = $('#date-other');
 
   function isoDate(d) {
     var pad = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
-  // Высота закреплённой плашки и шапки — для scroll-margin и sticky-карточки заказа.
+  // Высота закреплённой плашки и шапки — для scroll-margin и sticky-карточки расчёта.
   function measureSticky() {
     var h = $('.sticky').getBoundingClientRect().height;
     document.documentElement.style.setProperty('--sticky-h', Math.round(h) + 'px');
@@ -163,52 +192,98 @@
   measureSticky();
   window.addEventListener('resize', measureSticky);
 
-  // ---------- Выбор техники ----------
+  // ---------- Лента каталога на телефоне: счётчик «1 / 8» и точки ----------
 
-  function select(id) {
-    var m = data.machines.find(function (x) { return x.id === id; });
-    if (!m || !m.available) return;
+  var park = $('#park');
+  var cards = $$('.mc', park);
+  var counter = $('#park-counter');
+  var dotsBox = $('#park-dots');
+  var MAX_DOTS = 8;
+  // Точка i ведёт на карточку dotTarget[i]; карточек больше 8 — точки распределяются равномерно.
+  var dotCount = Math.min(cards.length, MAX_DOTS);
+  var dotTarget = [];
+  for (var d = 0; d < dotCount; d++) {
+    dotTarget.push(dotCount === 1 ? 0 : Math.round(d * (cards.length - 1) / (dotCount - 1)));
+  }
+
+  function scrollToCard(i) {
+    var card = cards[i];
+    park.scrollTo({ left: card.offsetLeft - park.offsetLeft - 16, behavior: scrollBehavior });
+  }
+
+  dotTarget.forEach(function (target, i) {
+    var dot = document.createElement('button');
+    dot.type = 'button';
+    dot.setAttribute('aria-label', 'Техника ' + (target + 1) + ' из ' + cards.length);
+    dot.addEventListener('click', function () { scrollToCard(target); });
+    dotsBox.appendChild(dot);
+  });
+
+  function setCurrent(i) {
+    counter.textContent = (i + 1) + ' / ' + cards.length;
+    var nearest = 0;
+    dotTarget.forEach(function (t, k) { if (Math.abs(t - i) < Math.abs(dotTarget[nearest] - i)) nearest = k; });
+    $$('button', dotsBox).forEach(function (b, k) { b.setAttribute('aria-current', String(k === nearest)); });
+  }
+  setCurrent(0);
+
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) setCurrent(cards.indexOf(e.target));
+      });
+    }, { root: park, threshold: 0.6 });
+    cards.forEach(function (c) { io.observe(c); });
+  }
+
+  // ---------- Выбор техники: карточки ⇄ select ----------
+
+  // На узком экране в списке только название — цена видна в итоговой карточке.
+  var narrow = window.matchMedia('(max-width: 559px)');
+  function optionLabels() {
+    $$('option[data-full]', machineSelect).forEach(function (o) {
+      o.textContent = narrow.matches ? o.dataset.short : o.dataset.full;
+    });
+  }
+  optionLabels();
+  if (narrow.addEventListener) narrow.addEventListener('change', optionLabels);
+
+  function select(id, fromCard) {
+    var m = data.machines.find(function (x) { return x.id === id; }) || null;
+    if (m && !isSelectable(m)) return;
     state.machine = m;
-    state.units = minUnits(m);
+    if (m) state.units = Math.max(state.units, minUnits(m));
 
     $$('.mc').forEach(function (card) {
-      var on = card.dataset.id === id;
-      card.setAttribute('aria-pressed', String(on));
-      if (!card.disabled) $('.mc__cta-text', card).textContent = on ? 'Выбрано' : 'Выбрать';
+      var on = Boolean(m) && card.dataset.id === m.id;
+      card.classList.toggle('is-selected', on);
+      var btn = $('.mc__btn', card);
+      if (btn.disabled) return;
+      btn.setAttribute('aria-pressed', String(on));
+      $('.mc__btn-text', btn).textContent = on ? 'Техника выбрана' : 'Выбрать';
     });
-
-    var visual = $('.mc[data-id="' + id + '"] .mc__media').querySelector('img, svg');
-    $$('.js-picked-media').forEach(function (box) {
-      box.innerHTML = '';
-      if (visual) {
-        var copy = visual.cloneNode(true);
-        copy.removeAttribute('loading');
-        box.appendChild(copy);
-      }
-    });
-    $$('.js-picked-title').forEach(function (el) { el.textContent = m.title; });
+    machineSelect.value = m ? m.id : '';
+    if (m) clearError('machine');
 
     unitsHint.hidden = true;
     renderUnitChips();
     renderUnits();
 
-    var firstTime = orderEl.hidden;
-    orderEl.hidden = false;
-    barEl.hidden = false;
-    document.body.classList.add('has-bar');
-    renderSummary();
-    if (firstTime || orderEl.getBoundingClientRect().top > window.innerHeight * 0.6) {
-      orderEl.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
+    if (m) {
+      barEl.hidden = false;
+      document.body.classList.add('has-bar');
     }
+    renderSummary();
+    if (fromCard && m) $('#calc').scrollIntoView({ behavior: scrollBehavior, block: 'start' });
   }
 
   $$('.mc').forEach(function (card) {
-    card.addEventListener('click', function () {
-      if (!card.disabled) select(card.dataset.id);
-    });
+    if (card.dataset.status === 'busy') return;
+    card.addEventListener('click', function () { select(card.dataset.id, true); });
   });
+  machineSelect.addEventListener('change', function () { select(machineSelect.value, false); });
 
-  // ---------- Объём ----------
+  // ---------- Количество ----------
 
   function renderUnitChips() {
     var m = state.machine;
@@ -226,18 +301,21 @@
   }
 
   function setUnits(n) {
+    if (!state.machine) return;
     var p = calcPrice(state.machine, n, null);
     unitsHint.textContent = 'минимальный заказ — ' + qty(minUnits(state.machine), state.machine.unit);
     unitsHint.hidden = !p.belowMin;
     state.units = p.units;
+    clearError('units');
     renderUnits();
   }
 
   function renderUnits() {
     var m = state.machine;
-    if (!m) return;
-    unitsOut.textContent = qty(state.units, m.unit);
-    unitsMinus.disabled = state.units <= minUnits(m);
+    $('#units-label').textContent = !m || m.unit === 'час' ? 'Количество часов' : 'Количество (' + plural(5, m.unit) + ')';
+    unitsOut.textContent = m ? qty(state.units, m.unit) : '—';
+    unitsMinus.disabled = !m || state.units <= minUnits(m);
+    unitsPlus.disabled = !m;
     $$('.chip', unitsChips).forEach(function (c) {
       c.setAttribute('aria-pressed', String(Number(c.dataset.units) === state.units));
     });
@@ -245,94 +323,87 @@
   }
 
   unitsMinus.addEventListener('click', function () { setUnits(state.units - 1); });
-  $('#units-plus').addEventListener('click', function () { setUnits(state.units + 1); });
+  unitsPlus.addEventListener('click', function () { setUnits(state.units + 1); });
 
   // ---------- Дата ----------
 
   dateInput.min = isoDate(new Date());
 
+  // kind: today | tomorrow | other — какой чип нажат.
+  function setDate(iso, kind) {
+    state.date = iso && iso >= dateInput.min ? iso : '';
+    dateInput.value = state.date;
+    dateOther.hidden = kind !== 'other';
+    $$('[data-date]').forEach(function (c) { c.setAttribute('aria-pressed', String(c.dataset.date === kind)); });
+    if (state.date) clearError('date');
+  }
+
   $$('[data-date]').forEach(function (chip) {
     chip.addEventListener('click', function () {
-      $$('[data-date]').forEach(function (c) { c.setAttribute('aria-pressed', String(c === chip)); });
       var kind = chip.dataset.date;
       if (kind === 'other') {
-        dateInput.hidden = false;
-        state.date = dateInput.value >= dateInput.min ? dateInput.value : '';
+        setDate(dateInput.value, 'other');
         dateInput.focus();
         if (dateInput.showPicker) { try { dateInput.showPicker(); } catch (e) { /* не везде доступно */ } }
-      } else {
-        dateInput.hidden = true;
-        var d = new Date();
-        if (kind === 'tomorrow') d.setDate(d.getDate() + 1);
-        state.date = isoDate(d);
+        return;
       }
-      if (state.date) clearError('date');
-      renderSummary();
+      var d = new Date();
+      if (kind === 'tomorrow') d.setDate(d.getDate() + 1);
+      setDate(isoDate(d), kind);
     });
   });
-
-  dateInput.addEventListener('change', function () {
-    state.date = dateInput.value >= dateInput.min ? dateInput.value : '';
-    if (state.date) clearError('date');
-    renderSummary();
-  });
+  dateInput.addEventListener('change', function () { setDate(dateInput.value, 'other'); });
 
   // ---------- Зона ----------
 
-  $$('[data-zone]').forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      $$('[data-zone]').forEach(function (c) { c.setAttribute('aria-pressed', String(c === chip)); });
-      state.zone = Number(chip.dataset.zone);
-      clearError('zone');
+  if (zoneSelect) {
+    zoneSelect.addEventListener('change', function () {
+      state.zone = zoneSelect.value === '' ? null : Number(zoneSelect.value);
+      if (state.zone !== null) clearError('zone');
       renderSummary();
     });
-  });
-
-  // ---------- Комментарий ----------
-
-  commentToggle.addEventListener('click', function () {
-    comment.hidden = false;
-    commentToggle.hidden = true;
-    commentToggle.setAttribute('aria-expanded', 'true');
-    comment.focus();
-  });
-
-  // ---------- Цена: нижняя панель и «Ваш заказ» ----------
+  }
 
   function currentZone() {
     return state.zone === null ? null : data.zones[state.zone];
   }
 
-  function priceParts() {
-    var text = priceText(calcPrice(state.machine, state.units, currentZone()), data.currency);
-    return text ? { main: text, note: 'предварительно' } : { main: 'Цену назовёт менеджер', note: '' };
+  // ---------- Итоговая стоимость и нижняя панель ----------
+
+  function setText(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = text;
   }
 
   function renderSummary() {
     var m = state.machine;
-    if (!m) return;
-    var p = priceParts();
-    $$('.js-price').forEach(function (el) {
-      el.textContent = p.main;
-      if (p.note) {
-        var small = document.createElement('small');
-        small.textContent = p.note;
-        el.appendChild(small);
-      }
+    var zone = currentZone();
+    var p = m ? calcPrice(m, state.units, zone) : null;
+    var hasPrice = Boolean(p && p.low != null);
+
+    setText('sum-machine', m ? m.title : '—');
+    setText('sum-units', m ? qty(state.units, m.unit) : '—');
+    $$('.js-cost-row').forEach(function (row) { row.hidden = Boolean(m) && !hasPrice; });
+    setText('sum-rent', hasPrice ? moneyRange(p.rentLow, p.rentHigh, data.currency) : '—');
+    setText('sum-delivery-label', zone ? 'Доставка: ' + zone.title : 'Доставка');
+    setText('sum-delivery', zone && p ? moneyRange(p.deliveryLow, p.deliveryHigh, data.currency) : '—');
+
+    var total = !m ? 'Выберите технику' : hasPrice ? priceText(p, data.currency) : 'назовёт менеджер';
+    $$('.js-total').forEach(function (el) {
+      el.textContent = total;
+      el.classList.toggle('is-text', !hasPrice);
+      el.classList.toggle('is-range', hasPrice && p.low !== p.high);
     });
-    // Панель может вырасти (длинный диапазон) — отступ снизу страницы подстраиваем под неё.
+    $('#sum-pre').hidden = !hasPrice;
+    $('#bar-pre').hidden = !hasPrice;
+
+    // Панель может вырасти — отступ снизу страницы подстраиваем под неё.
     if (!barEl.hidden && barEl.offsetHeight) {
       document.documentElement.style.setProperty('--bar-h', barEl.offsetHeight + 'px');
     }
-    var sumUnits = $('#sum-units');
-    if (sumUnits) sumUnits.textContent = qty(state.units, m.unit);
-    var sumDate = $('#sum-date');
-    if (sumDate) sumDate.textContent = state.date ? formatDate(state.date) : '—';
-    var sumZone = $('#sum-zone');
-    if (sumZone) sumZone.textContent = state.zone === null ? '—' : data.zones[state.zone].title;
   }
 
-  // ---------- Проверка полей ----------
+  // ---------- Проверка полей и отправка ----------
 
   function fieldEl(name) {
     return $('[data-field="' + name + '"]');
@@ -354,9 +425,8 @@
     if (err) err.hidden = true;
   }
 
-  [['address', '#address'], ['phone', '#client_phone']].forEach(function (pair) {
-    $(pair[1]).addEventListener('input', function () { clearError(pair[0]); });
-  });
+  $('#address').addEventListener('input', function () { clearError('address'); });
+  $('#client_phone').addEventListener('input', function () { clearError('phone'); });
   $('#consent').addEventListener('change', function () { clearError('consent'); });
 
   function order() {
@@ -364,13 +434,14 @@
       machine: state.machine,
       units: state.units,
       date: state.date,
+      time: $('#time').value,
       today: isoDate(new Date()),
       hasZones: data.zones.length > 0,
       zone: currentZone(),
       address: $('#address').value,
       name: $('#client_name').value,
       phone: $('#client_phone').value,
-      comment: comment.hidden ? '' : comment.value,
+      comment: $('#comment').value,
       consent: $('#consent').checked,
       currency: data.currency,
     };
@@ -380,21 +451,20 @@
     btn.addEventListener('click', function () {
       var o = order();
       var problem = validateOrder(o);
-      if (problem && (problem[0] === 'machine' || problem[0] === 'units')) {
-        $('#choose').scrollIntoView({ behavior: scrollBehavior, block: 'start' });
-        return;
-      }
       if (problem) {
         showError(problem[0], problem[1]);
         var f = fieldEl(problem[0]);
         f.scrollIntoView({ behavior: scrollBehavior, block: 'center' });
-        var input = $('input:not([hidden]), button.chip', f);
-        if (input) input.focus({ preventScroll: true });
+        var control = $('select, input:not([type="hidden"]), button', f);
+        if (control && control.closest('[hidden]')) control = $('button', f);
+        if (control) control.focus({ preventScroll: true });
         return;
       }
       // Переход в той же вкладке: window.open на телефоне блокируется.
-      var link = buildLink(buildMessage(o), data.whatsapp, data.phone);
+      var link = buildLink(buildMessage(o), data);
       if (link) window.location.href = link;
     });
   });
+
+  renderUnits();
 })();

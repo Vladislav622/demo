@@ -14,15 +14,21 @@ const ROOT = __dirname;
 const COMPANIES_DIR = path.join(ROOT, 'companies');
 
 const KNOWN_KEYS = [
-  'demo', 'slug', 'name', 'logo', 'hero_photo', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp',
-  'colors', 'about', 'reviews_summary', 'source_2gis', 'currency', 'price_note', 'machines', 'zones',
+  'demo', 'slug', 'name', 'tagline', 'logo', 'hero_photo', 'hero_title', 'city', 'city_in', 'address', 'schedule',
+  'phone', 'whatsapp', 'telegram', 'channel', 'delivery_time_text', 'park_note', 'features', 'colors', 'about', 'reviews_summary', 'source_2gis', 'currency', 'price_note', 'machines', 'zones',
 ];
-const MACHINE_KEYS = ['id', 'title', 'kind', 'photo', 'purpose', 'rate_from', 'rate_to', 'unit', 'min_units', 'available'];
+const MACHINE_KEYS = ['id', 'title', 'kind', 'photo', 'purpose', 'rate_from', 'rate_to', 'unit', 'min_units', 'status', 'available'];
 const ZONE_KEYS = ['title', 'delivery_from', 'delivery_to'];
-const OPTIONAL_STRINGS = ['logo', 'hero_photo', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp', 'about', 'source_2gis', 'price_note'];
+const OPTIONAL_STRINGS = ['tagline', 'logo', 'hero_photo', 'hero_title', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp',
+  'telegram', 'channel', 'delivery_time_text', 'park_note', 'about', 'source_2gis', 'price_note'];
 
 const KINDS = ['excavator', 'crane', 'dump_truck', 'loader', 'manipulator', 'aerial_platform', 'bulldozer', 'roller', 'tractor', 'other'];
 const PHOTO_WARN_BYTES = 300 * 1024;
+const STATUSES = ['free', 'busy', 'confirm'];
+const CHANNELS = ['whatsapp', 'telegram'];
+const FEATURE_ICONS = ['park', 'clock', 'operator', 'calendar', 'shield', 'truck'];
+const FEATURE_KEYS = ['icon', 'title', 'text'];
+const STOCK_DIR = path.join(ROOT, 'assets', 'stock');
 
 const SLUG_RE = /^_?[a-z0-9][a-z0-9-]*$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -66,6 +72,23 @@ function readConfig(file) {
   }
 }
 
+// Статус позиции: status, а для старых конфигов — available (true → free, false → busy).
+function machineStatus(m) {
+  if (STATUSES.includes(m.status)) return m.status;
+  return m.available === false ? 'busy' : 'free';
+}
+
+// Главный канал заявок: channel из конфига, иначе WhatsApp, если он есть, иначе Telegram, иначе звонок.
+function resolveChannel(config) {
+  const wa = typeof config.whatsapp === 'string' ? config.whatsapp.trim() : '';
+  const tg = typeof config.telegram === 'string' ? config.telegram.trim() : '';
+  if (config.channel === 'telegram' && tg) return 'telegram';
+  if (config.channel === 'whatsapp' && wa) return 'whatsapp';
+  if (wa) return 'whatsapp';
+  if (tg) return 'telegram';
+  return 'phone';
+}
+
 // Возвращает { errors, warnings }. Каждая строка: «файл: поле — что не так».
 function validate(config, rel, folder) {
   const errors = [];
@@ -99,9 +122,21 @@ function validate(config, rel, folder) {
     }
   }
 
-  // Контакт: whatsapp или phone обязателен.
+  // Контакт: WhatsApp (основной), Telegram (запасной) или телефон — хотя бы один.
   const wa = typeof config.whatsapp === 'string' ? config.whatsapp.trim() : '';
+  const tg = typeof config.telegram === 'string' ? config.telegram.trim() : '';
   const phone = typeof config.phone === 'string' ? config.phone.trim() : '';
+  if (tg && !/^[A-Za-z0-9_]{5,32}$/.test(tg)) {
+    err('telegram', `username без @: латиница, цифры, «_», 5–32 символа (сейчас: ${show(config.telegram)})`);
+  }
+  const channel = typeof config.channel === 'string' ? config.channel.trim() : '';
+  if (channel && !CHANNELS.includes(channel)) {
+    err('channel', `"whatsapp" или "telegram" (сейчас: ${show(config.channel)})`);
+  } else if (channel === 'whatsapp' && !wa) {
+    err('channel', 'указан "whatsapp", но поле whatsapp пустое');
+  } else if (channel === 'telegram' && !tg) {
+    err('channel', 'указан "telegram", но поле telegram пустое');
+  }
   if (wa && !/^\d{10,15}$/.test(wa)) {
     err('whatsapp', `только цифры в международном формате, 10–15 цифр, например 77011234567 (сейчас: ${show(config.whatsapp)})`);
   }
@@ -110,12 +145,12 @@ function validate(config, rel, folder) {
   } else if (phone && (digits(phone).length < 10 || digits(phone).length > 15)) {
     err('phone', `должно быть 10–15 цифр (сейчас: ${digits(phone).length})`);
   }
-  if (!wa && !phone) {
+  if (!wa && !tg && !phone) {
     if (folder.startsWith('_')) {
       err('whatsapp / phone', 'нет контакта — для тестовой сборки задайте TEST_WA=<ваш номер>, например: '
         + 'TEST_WA=77011234567 node build.js --test (в PowerShell: $env:TEST_WA="77011234567"; node build.js --test)');
     } else {
-      err('whatsapp / phone', 'нет ни WhatsApp, ни телефона — демо без контакта не собираем');
+      err('whatsapp / telegram / phone', 'нет ни WhatsApp, ни Telegram, ни телефона — демо без контакта не собираем');
     }
   }
 
@@ -131,6 +166,30 @@ function validate(config, rel, folder) {
   };
   checkImage('logo', config.logo);
   checkImage('hero_photo', config.hero_photo);
+
+  if (config.hero_title !== undefined && typeof config.hero_title === 'string' && (config.hero_title.match(/\*/g) || []).length % 2) {
+    err('hero_title', 'непарная «*»: выделяемые слова оборачиваются с двух сторон, например "Техника *точно в срок*"');
+  }
+
+  if (config.features !== undefined) {
+    if (!Array.isArray(config.features)) {
+      err('features', 'должно быть массивом [{ "icon": "...", "title": "...", "text": "..." }] (или [] — блока не будет)');
+    } else {
+      config.features.forEach((ft, i) => {
+        const f = (k) => `features[${i}].${k}`;
+        if (typeof ft !== 'object' || ft === null || Array.isArray(ft)) {
+          err(`features[${i}]`, 'должно быть объектом { icon, title, text }');
+          return;
+        }
+        for (const key of Object.keys(ft)) {
+          if (!FEATURE_KEYS.includes(key)) warn(f(key), 'неизвестное поле, будет проигнорировано (опечатка?)');
+        }
+        if (!FEATURE_ICONS.includes(ft.icon)) err(f('icon'), `неизвестная иконка ${show(ft.icon)}; допустимо: ${FEATURE_ICONS.join(', ')}`);
+        if (typeof ft.title !== 'string' || isEmpty(ft.title)) err(f('title'), 'заголовок обязателен — заполните или удалите пункт');
+        if (ft.text !== undefined && typeof ft.text !== 'string') err(f('text'), `должно быть строкой (сейчас: ${show(ft.text)})`);
+      });
+    }
+  }
 
   if (typeof config.city_in === 'string' && config.city_in.trim() && !/^во? \S/.test(config.city_in.trim())) {
     err('city_in', `город с предлогом, начинается с «в » или «во », например "в Караганде" (сейчас: ${show(config.city_in)})`);
@@ -212,11 +271,18 @@ function validate(config, rel, folder) {
       if (m.min_units != null && !(Number.isInteger(m.min_units) && m.min_units > 0)) {
         err(f('min_units'), `целое число больше 0 или null (сейчас: ${show(m.min_units)})`);
       }
+      if (m.status !== undefined && !STATUSES.includes(m.status)) {
+        err(f('status'), `"free", "busy" или "confirm" (сейчас: ${show(m.status)})`);
+      }
       if (m.available !== undefined && typeof m.available !== 'boolean') {
         err(f('available'), `должно быть true или false (сейчас: ${show(m.available)})`);
+      } else if (m.available !== undefined && m.status !== undefined) {
+        warn(f('available'), 'задан вместе со status — используется status, available удалите');
+      } else if (m.available !== undefined) {
+        warn(f('available'), `устаревшее поле: замените на "status": "${m.available ? 'free' : 'busy'}"`);
       }
     });
-    if (config.machines.every((m) => m && m.available === false)) {
+    if (config.machines.every((m) => m && machineStatus(m) === 'busy')) {
       warn('machines', 'все позиции помечены занятыми — заказать будет нечего');
     }
   }
@@ -309,9 +375,15 @@ function esc(s) {
 
 const fmtNum = Calc.fmtNum;
 
-function rateText(m, currency) {
-  if (m.rate_from == null) return 'цена по запросу';
-  return `от ${fmtNum(m.rate_from)} ${currency}/${m.unit}`;
+// «2 500 ₸» — ставка без единицы; null, если цены нет.
+function rateMoney(m, currency) {
+  return m.rate_from == null ? null : `${fmtNum(m.rate_from)} ${currency}`;
+}
+
+// «мин. смена — 4 часа» для часов, «мин. заказ — 2 смены» для остальных единиц.
+function minText(m) {
+  if (!m.min_units) return '';
+  return `${m.unit === 'час' ? 'мин. смена' : 'мин. заказ'} — ${Calc.qty(m.min_units, m.unit)}`;
 }
 
 // Иконки видов техники: иллюстрация, не фото. Единый стиль — контур 2px, скругления.
@@ -337,11 +409,23 @@ function kindIcon(kind, cls) {
 const UI = {
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  plane: '<path d="M21 3L3 10.5l7 2.5 2.5 7z"/><path d="M21 3L10 13"/>',
   pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
-  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   check: '<path d="M6 12.5l4 4 8-9"/>',
+  checkCircle: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.3l2.4 2.4 4.6-5"/>',
+  alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.2v.3"/>',
   quote: '<path d="M10 6C6.5 7.2 4 9.8 4 13.5V18h6v-6H6.5c.3-2 1.6-3.4 3.5-4.2z"/><path d="M20 6c-3.5 1.2-6 3.8-6 7.5V18h6v-6h-3.5c.3-2 1.6-3.4 3.5-4.2z"/>',
+  truck: '<path d="M3 6h11v10H3z"/><path d="M14 9h4l3 3.5V16h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
+  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h1M12 11h0M16 11h0M8 15h1M12 15h0M16 15h0M8 18.5h8"/>',
+  comment: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.5-5.5 7-5.5s6.2 1.9 7 5.5"/>',
+  arrowDown: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  park: '<path d="M3 20V9l9-5 9 5v11"/><path d="M7 20v-7h10v7M7 16h10"/>',
+  operator: '<path d="M5 15a7 7 0 0 1 14 0"/><path d="M3 15h18v2.5H3z"/><path d="M12 8v3"/>',
+  shield: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4.5"/>',
 };
 
 function uiIcon(name, cls = 'ui') {
@@ -379,29 +463,85 @@ function render(tpl, vars) {
   return out;
 }
 
-function machineCard(m, currency) {
-  const busy = !m.available;
+// Общее фото по виду техники (assets/stock/<kind>.jpg), если у позиции нет своего.
+function stockFor(kind) {
+  const k = KINDS.includes(kind) ? kind : 'other';
+  return fs.existsSync(path.join(STOCK_DIR, `${k}.jpg`)) ? k : null;
+}
+
+// Картинка позиции: своё фото → общее «для примера» → SVG-иконка.
+function machineMedia(m) {
   const photo = str(m.photo);
-  const media = photo
-    ? `<img src="${esc(photo)}" alt="" width="1200" height="900" loading="lazy">`
-    : kindIcon(m.kind, 'mc__icon');
+  if (photo) return { type: 'photo', src: photo };
+  const stock = stockFor(m.kind);
+  if (stock) return { type: 'stock', src: `img/stock/${stock}.jpg` };
+  return { type: 'icon' };
+}
+
+const STATUS_CHIP = {
+  free: ['status--free', 'checkCircle', 'Свободна'],
+  busy: ['status--busy', 'clock', 'Занята'],
+  confirm: ['status--confirm', 'alert', 'Требует подтверждения'],
+};
+
+function machineCard(m, currency) {
+  const media = machineMedia(m);
+  const [chipCls, chipIcon, chipText] = STATUS_CHIP[m.status];
+  const busy = m.status === 'busy';
+  const money = rateMoney(m, currency);
+  const min = minText(m);
+  const mediaHtml = media.type === 'icon'
+    ? kindIcon(m.kind, 'mc__icon')
+    : `<img src="${esc(media.src)}" alt="" width="1200" height="750" loading="lazy">`;
   return [
-    `        <button type="button" class="mc${busy ? ' mc--busy' : ''}" data-id="${esc(m.id)}" aria-pressed="false"${busy ? ' disabled' : ''}>`,
-    `          <span class="mc__media${photo ? '' : ' mc__media--icon'}">${media}`,
-    `            <span class="badge ${busy ? 'badge--busy' : 'badge--free'}">${busy ? 'Занята' : 'Свободна'}</span>`,
-    `            <span class="mc__check">${uiIcon('check')}</span>`,
-    '          </span>',
-    '          <span class="mc__body">',
-    `            <span class="mc__title">${esc(m.title)}</span>`,
-    str(m.purpose) ? `            <span class="mc__purpose">${esc(str(m.purpose))}</span>` : null,
-    `            <span class="mc__price${m.rate_from == null ? ' mc__price--ask' : ''}">${esc(rateText(m, currency))}</span>`,
-    m.min_units ? `            <span class="mc__min">мин. ${esc(Calc.qty(m.min_units, m.unit))}</span>` : null,
-    '          </span>',
+    `        <article class="mc mc--${m.status}" data-id="${esc(m.id)}" data-status="${m.status}">`,
+    `          <div class="mc__media${media.type === 'icon' ? ' mc__media--icon' : ''}">${mediaHtml}`,
+    media.type === 'stock' ? '            <span class="mc__stock">Фото для примера</span>' : null,
+    `            <span class="mc__picked">${uiIcon('check')}Выбрано</span>`,
+    '          </div>',
+    '          <div class="mc__body">',
+    '            <div class="mc__head">',
+    `              <h3 class="mc__title">${esc(m.title)}</h3>`,
+    `              <span class="status ${chipCls}">${uiIcon(chipIcon)}${chipText}</span>`,
+    '            </div>',
+    str(m.purpose) ? `            <p class="mc__purpose">${esc(str(m.purpose))}</p>` : null,
+    money
+      ? `            <p class="mc__price"><b>${esc(money)}</b> /${esc(m.unit)}${min ? ` · ${esc(min)}` : ''}</p>`
+      : `            <p class="mc__price"><b class="mc__ask">Цена по запросу</b>${min ? ` · ${esc(min)}` : ''}</p>`,
     busy
-      ? '          <span class="mc__cta mc__cta--busy">Занята</span>'
-      : `          <span class="mc__cta">${uiIcon('check', 'ui mc__cta-ico')}<span class="mc__cta-text">Выбрать</span></span>`,
-    '        </button>',
+      ? '            <button type="button" class="mc__btn" disabled>Сейчас занята</button>'
+      : `            <button type="button" class="mc__btn" aria-pressed="false"><span class="mc__btn-text">Выбрать</span>${uiIcon('check')}</button>`,
+    '          </div>',
+    '        </article>',
   ].filter((l) => l !== null).join('\n');
+}
+
+// «Спецтехника на объекте *точно в срок*» → акцентный цвет на словах в звёздочках.
+function accentTitle(text) {
+  return esc(text).replace(/\*([^*]+)\*/g, '<span class="accent">$1</span>');
+}
+
+const FEATURE_ICON = { park: 'park', clock: 'clock', operator: 'operator', calendar: 'calendar', shield: 'shield', truck: 'truck' };
+
+function normalizedMachines(config) {
+  return config.machines.map((m) => ({ ...m, status: machineStatus(m) }));
+}
+
+// Какие общие фото нужны компании (копируются в img/stock/).
+function neededStock(config) {
+  const all = [...normalizedMachines(config).map(machineMedia), heroMedia(config)];
+  return [...new Set(all.filter((x) => x.type === 'stock').map((x) => x.src))];
+}
+
+// Фото первого экрана: hero_photo → своё фото первой свободной позиции → общее фото по её виду.
+function heroMedia(config) {
+  const machines = normalizedMachines(config);
+  if (str(config.hero_photo)) return { type: 'photo', src: str(config.hero_photo) };
+  const withPhoto = machines.find((m) => m.status !== 'busy' && str(m.photo));
+  if (withPhoto) return { type: 'photo', src: str(withPhoto.photo) };
+  const firstFree = machines.find((m) => m.status !== 'busy') || machines[0];
+  const stock = stockFor(firstFree.kind);
+  return stock ? { type: 'stock', src: `img/stock/${stock}.jpg` } : { type: 'icon', src: '' };
 }
 
 function pageVars(config) {
@@ -411,12 +551,15 @@ function pageVars(config) {
   const address = str(config.address);
   const phone = str(config.phone);
   const whatsapp = str(config.whatsapp);
+  const telegram = str(config.telegram);
   const currency = str(config.currency);
   const source2gis = str(config.source_2gis);
-  const machines = config.machines.map((m) => ({ ...m, available: m.available !== false }));
+  const machines = normalizedMachines(config);
   const zones = Array.isArray(config.zones) ? config.zones : [];
   const reviews = Array.isArray(config.reviews_summary) ? config.reviews_summary.map(str).filter(Boolean) : [];
+  const features = Array.isArray(config.features) ? config.features.filter((f) => f && str(f.title)) : [];
   const colors = config.colors || {};
+  const channel = resolveChannel(config);
 
   const colorRules = [];
   for (const key of ['primary', 'accent']) {
@@ -425,42 +568,67 @@ function pageVars(config) {
   }
 
   const logo = str(config.logo);
-  const brandHtml = logo
-    ? `<img class="brand__logo" src="${esc(logo)}" alt="${esc(name)}">`
-    : `<span class="brand__name">${esc(name)}</span>`;
+  const logoHtml = logo ? `<img src="${esc(logo)}" alt="">` : uiIcon('truck');
 
-  // Связь: телефон, а если его нет — WhatsApp.
+  // Канал связи: WhatsApp (основной), Telegram (запасной), иначе звонок.
   const phoneTel = phone ? `+${digits(phone)}` : '';
-  const callHref = phone ? `tel:${phoneTel}` : `https://wa.me/${whatsapp}`;
-  const callLabel = phone ? 'Позвонить' : 'WhatsApp';
-  const callIcon = phone ? 'phone' : 'chat';
+  const CH = {
+    whatsapp: { href: `https://wa.me/${whatsapp}`, label: 'Написать в WhatsApp', short: 'WhatsApp', icon: 'chat', send: 'Отправить заявку в WhatsApp' },
+    telegram: { href: `https://t.me/${telegram}`, label: 'Написать в Telegram', short: 'Telegram', icon: 'plane', send: 'Отправить заявку в Telegram' },
+    phone: { href: `tel:${phoneTel}`, label: 'Позвонить', short: 'Позвонить', icon: 'phone', send: 'Позвонить и заказать' },
+  }[channel];
 
-  // Первый экран: hero_photo → фото первой свободной позиции → иконка на фоне primary.
-  const firstFree = machines.find((m) => m.available) || machines[0];
-  const heroPhoto = str(config.hero_photo)
-    || str((machines.find((m) => m.available && str(m.photo)) || {}).photo);
-  const heroMedia = heroPhoto
-    ? `<img class="hero__img" src="${esc(heroPhoto)}" alt="" width="1200" height="900">`
-    : kindIcon(firstFree.kind, 'hero__icon');
+  // Первый экран: hero_photo → фото первой свободной позиции → общее фото «для примера» → иконка.
+  const firstFree = machines.find((m) => m.status !== 'busy') || machines[0];
+  const hero = heroMedia(config);
+  const heroPhoto = hero.src;
+  const heroTitle = str(config.hero_title)
+    ? accentTitle(str(config.hero_title))
+    : `Аренда спецтехники${cityIn ? ` <span class="accent">${esc(cityIn)}</span>` : ''}`;
+  const count = machines.length;
 
-  const zoneChips = zones.map((z, i) => `            <button type="button" class="chip" data-zone="${i}" aria-pressed="false">${esc(z.title)}</button>`).join('\n');
+  const featureItems = features.map((f) => [
+    '        <li class="feature">',
+    `          <span class="feature__ico">${uiIcon(FEATURE_ICON[f.icon] || 'truck')}</span>`,
+    `          <span class="feature__title">${esc(str(f.title))}</span>`,
+    str(f.text) ? `          <span class="feature__text">${esc(str(f.text))}</span>` : null,
+    '        </li>',
+  ].filter((l) => l !== null).join('\n')).join('\n');
+
+  const machineOptions = machines.filter((m) => m.status !== 'busy').map((m) => {
+    const money = rateMoney(m, currency);
+    const label = `${m.title} · ${money ? `${money}/${m.unit === 'час' ? 'ч' : m.unit}` : 'цена по запросу'}`;
+    return `              <option value="${esc(m.id)}" data-full="${esc(label)}" data-short="${esc(m.title)}">${esc(label)}</option>`;
+  }).join('\n');
+
+  const zoneOptions = zones.map((z, i) => {
+    const from = z.delivery_from;
+    const to = z.delivery_to ?? from;
+    let price = '';
+    if (from === 0 && (to === 0 || to == null)) price = ' — бесплатно';
+    else if (from != null) price = ` — ${from === to ? `${fmtNum(from)} ${currency}` : `${fmtNum(from)}–${fmtNum(to)} ${currency}`}`;
+    return `              <option value="${i}">${esc(z.title + price)}</option>`;
+  }).join('\n');
+
   const reviewItems = reviews.map((r) => `        <li class="review">${uiIcon('quote', 'review__q')}<p>${esc(r)}</p></li>`).join('\n');
 
   const contactButtons = [
-    phone ? `        <a class="btn btn--accent" href="tel:${esc(phoneTel)}">${uiIcon('phone')}Позвонить</a>` : null,
-    whatsapp ? `        <a class="btn btn--line" href="https://wa.me/${esc(whatsapp)}">${uiIcon('chat')}WhatsApp</a>` : null,
+    whatsapp ? `        <a class="btn ${channel === 'whatsapp' ? 'btn--accent' : 'btn--line'}" href="https://wa.me/${esc(whatsapp)}">${uiIcon('chat')}WhatsApp</a>` : null,
+    telegram ? `        <a class="btn ${channel === 'telegram' ? 'btn--accent' : 'btn--line'}" href="https://t.me/${esc(telegram)}">${uiIcon('plane')}Telegram</a>` : null,
+    phone ? `        <a class="btn btn--line" href="tel:${esc(phoneTel)}">${uiIcon('phone')}Позвонить</a>` : null,
     source2gis ? `        <a class="btn btn--line" href="${esc(source2gis)}" target="_blank" rel="nofollow noopener">${uiIcon('pin')}Открыть в 2ГИС</a>` : null,
   ].filter(Boolean).join('\n');
 
-  // Данные для калькулятора (app.js). «<» экранируем, чтобы строка не закрыла <script>.
+  // Данные для расчёта (app.js). «<» экранируем, чтобы строка не закрыла <script>.
   const data = {
     currency,
+    channel,
     whatsapp,
+    telegram,
     phone: phone ? digits(phone) : '',
     machines: machines.map((m) => ({
-      id: m.id, title: m.title, unit: m.unit,
-      rate_from: m.rate_from ?? null, rate_to: m.rate_to ?? null,
-      min_units: m.min_units ?? null, available: m.available,
+      id: m.id, title: m.title, unit: m.unit, status: m.status,
+      rate_from: m.rate_from ?? null, rate_to: m.rate_to ?? null, min_units: m.min_units ?? null,
     })),
     zones: zones.map((z) => ({ title: z.title, delivery_from: z.delivery_from ?? null, delivery_to: z.delivery_to ?? null })),
   };
@@ -468,35 +636,55 @@ function pageVars(config) {
   return {
     demo: config.demo === true,
     name,
+    tagline: str(config.tagline),
     city,
-    address: address ? [city, address].filter(Boolean).join(', ') : '',
     schedule: str(config.schedule),
+    address: address ? [city, address].filter(Boolean).join(', ') : '',
     about: str(config.about),
     price_note: str(config.price_note),
+    park_note: str(config.park_note),
+    delivery_time_text: str(config.delivery_time_text),
     page_title: `${name} — аренда спецтехники${city ? `, ${city}` : ''}`,
     page_description: `${name}: аренда спецтехники${city ? ` в городе ${city}` : ''}. Выбор техники, расчёт и заявка онлайн.`,
     color_style: colorRules.length ? `<style>:root{${colorRules.join(';')}}</style>` : '',
-    brand_html: brandHtml,
-    call_href: callHref,
-    call_label: callLabel,
-    call_icon: uiIcon(callIcon),
+    logo_html: logoHtml,
+    channel_href: CH.href,
+    channel_label: CH.label,
+    channel_short: CH.short,
+    channel_icon: uiIcon(CH.icon),
+    send_label: CH.send,
+    send_icon: uiIcon(CH.icon),
+    icon_pin: uiIcon('pin'),
+    icon_calc: uiIcon('calc'),
+    icon_down: uiIcon('arrowDown'),
+    icon_right: uiIcon('arrowRight'),
+    icon_truck: uiIcon('truck', 'ui ctl__ico'),
+    icon_pin_ctl: uiIcon('pin', 'ui ctl__ico'),
+    icon_calendar_ctl: uiIcon('calendar', 'ui ctl__ico'),
+    icon_clock_ctl: uiIcon('clock', 'ui ctl__ico'),
+    icon_comment_ctl: uiIcon('comment', 'ui ctl__ico'),
+    icon_user_ctl: uiIcon('user', 'ui ctl__ico'),
+    icon_phone_ctl: uiIcon('phone', 'ui ctl__ico'),
+    icon_map_ctl: uiIcon('truck', 'ui ctl__ico'),
+    hero_chip: city ? (cityIn ? `Спецтехника ${cityIn}` : `Спецтехника в городе ${city}`) : '',
+    hero_title: heroTitle,
+    has_hero_photo: Boolean(heroPhoto),
+    hero_stock: hero.type === 'stock',
     hero_class: heroPhoto ? 'hero--photo' : 'hero--icon',
-    hero_media: heroMedia,
-    hero_title: cityIn ? `Аренда спецтехники ${cityIn}` : 'Аренда спецтехники',
-    hero_sub: !cityIn && city ? `${city} · ${name}` : name,
-    step_icon_1: uiIcon('grid', 'how__ico'),
-    step_icon_2: uiIcon('calendar', 'how__ico'),
-    step_icon_3: uiIcon(whatsapp ? 'chat' : 'phone', 'how__ico'),
-    step_3_label: whatsapp ? 'Заявка в WhatsApp' : 'Звонок менеджеру',
+    hero_photo: heroPhoto,
+    hero_icon: heroPhoto ? '' : kindIcon(firstFree.kind, 'hero__icon'),
+    stat_count: String(count),
+    stat_count_label: `${Calc.pluralForms(count, ['единица', 'единицы', 'единиц'])} техники`,
+    has_features: features.length > 0,
+    feature_items: featureItems,
     machine_cards: machines.map((m) => machineCard(m, currency)).join('\n'),
+    machine_count: String(machines.length),
+    machine_options: machineOptions,
     has_zones: zones.length > 0,
-    zone_chips: zoneChips,
+    zone_options: zoneOptions,
     has_reviews: reviews.length > 0,
     review_items: reviewItems,
     contact_buttons: contactButtons,
-    submit_label: whatsapp ? 'Отправить в WhatsApp' : 'Позвонить',
-    submit_short: whatsapp ? 'Отправить' : 'Позвонить',
-    submit_icon: uiIcon(whatsapp ? 'chat' : 'phone'),
     data_json: JSON.stringify(data).replace(/</g, '\\u003c'),
   };
 }
@@ -518,6 +706,11 @@ function buildCompany(company, outRoot, tpl) {
   const img = path.join(COMPANIES_DIR, company.folder, 'img');
   if (fs.existsSync(img)) {
     fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });
+  }
+  // Общие фото «для примера» — только те, что нужны этой компании.
+  for (const rel of neededStock(company.config)) {
+    fs.mkdirSync(path.join(dir, 'img', 'stock'), { recursive: true });
+    fs.copyFileSync(path.join(STOCK_DIR, path.basename(rel)), path.join(dir, rel));
   }
 }
 
@@ -565,4 +758,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { validate, readConfig, loadCompanies, render, pageVars };
+module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel };
