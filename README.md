@@ -8,7 +8,7 @@
 3. Необязательные поля: `tagline`, `hero_photo`, `hero_title` (слова в `*звёздочках*` — акцентным цветом), `city_in` («в Караганде»),
    `delivery_time_text`, `park_note`, `features` (`[{icon, title, text}]`, icon: park, clock, operator, calendar, shield, truck),
    `telegram` (username без @), `channel` (`whatsapp` — по умолчанию, или `telegram`),
-   `machines[].status` (`free` / `busy` / `confirm`), `machines[].kind` (excavator, crane, dump_truck, loader, manipulator,
+   `machines[].status` (`free` / `busy` / `confirm`), `machines[].kind` (excavator, crane, dump_truck, loader — фронтальный погрузчик, mini_loader — мини-погрузчик, manipulator,
    aerial_platform, bulldozer, roller, tractor, other). Нет своего фото → общее из `assets/stock/<kind>.jpg` с подписью «Фото для примера», нет и его → иконка.
 4. Заполнять только то, что известно о компании. Пустое поле → блок на странице не выводится. Ничего не придумывать.
 5. `"demo": true` — плашка «Демо-концепт…» + noindex. Для оплатившего клиента — `"demo": false`.

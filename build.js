@@ -22,7 +22,7 @@ const ZONE_KEYS = ['title', 'delivery_from', 'delivery_to'];
 const OPTIONAL_STRINGS = ['tagline', 'logo', 'hero_photo', 'hero_title', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp',
   'telegram', 'channel', 'delivery_time_text', 'park_note', 'about', 'source_2gis', 'price_note'];
 
-const KINDS = ['excavator', 'crane', 'dump_truck', 'loader', 'manipulator', 'aerial_platform', 'bulldozer', 'roller', 'tractor', 'other'];
+const KINDS = ['excavator', 'crane', 'dump_truck', 'loader', 'mini_loader', 'manipulator', 'aerial_platform', 'bulldozer', 'roller', 'tractor', 'other'];
 const PHOTO_WARN_BYTES = 300 * 1024;
 const STATUSES = ['free', 'busy', 'confirm'];
 const CHANNELS = ['whatsapp', 'telegram'];
@@ -395,6 +395,7 @@ const KIND_PATHS = {
   crane: '<rect x="10" y="52" width="78" height="10" rx="2"/><path d="M88 62V44h12l8 8v10z"/><circle cx="24" cy="68" r="6"/><circle cx="42" cy="68" r="6"/><circle cx="96" cy="68" r="6"/><rect x="22" y="44" width="16" height="8" rx="2"/><path d="M30 44L96 12"/><path d="M96 12v24"/><path d="M96 36c0 4-5 4-5 0"/>',
   dump_truck: '<path d="M10 24h60l-6 28H14z"/><path d="M74 52V32h16l10 12v8z"/><path d="M78 36h10l6 8H78z"/><path d="M8 56h96"/><circle cx="24" cy="64" r="7"/><circle cx="44" cy="64" r="7"/><circle cx="88" cy="64" r="7"/>',
   loader: '<path d="M44 58V40h44v18"/><path d="M56 40V18h24v22"/><rect x="60" y="22" width="16" height="11" rx="1"/><circle cx="52" cy="64" r="10"/><circle cx="84" cy="64" r="10"/><path d="M44 46L26 56"/><path d="M26 44H12v18h16z"/>',
+  mini_loader: '<path d="M40 64V36h22l10 10v18z"/><path d="M46 40h12l6 6v8H46z"/><circle cx="49" cy="68" r="7"/><circle cx="69" cy="68" r="7"/><path d="M72 44l18 8"/><path d="M88 46h16l-3 20H86z"/>',
   manipulator: '<path d="M8 58h96"/><path d="M84 58V38h12l8 10v10z"/><rect x="12" y="46" width="52" height="12" rx="1"/><path d="M70 58V30"/><path d="M70 30L48 20L30 30"/><path d="M30 30v10"/><circle cx="24" cy="66" r="6"/><circle cx="44" cy="66" r="6"/><circle cx="92" cy="66" r="6"/>',
   aerial_platform: '<path d="M8 58h96"/><path d="M84 58V38h12l8 10v10z"/><rect x="26" y="48" width="18" height="10" rx="1"/><path d="M35 48L66 18"/><rect x="60" y="6" width="20" height="12" rx="1"/><circle cx="24" cy="66" r="6"/><circle cx="44" cy="66" r="6"/><circle cx="92" cy="66" r="6"/>',
   bulldozer: '<rect x="30" y="58" width="64" height="14" rx="7"/><circle cx="38" cy="65" r="3"/><circle cx="86" cy="65" r="3"/><path d="M36 58V40h44v18"/><path d="M54 40V20h22v20"/><path d="M12 34h8v38h-8c4-13 4-25 0-38z"/><path d="M20 52h16"/>',

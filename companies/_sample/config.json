@@ -31,7 +31,7 @@
   "machines": [
     { "id": "ekskavator-pogruzchik", "kind": "excavator", "title": "Экскаватор-погрузчик", "photo": "", "purpose": "Траншеи, котлованы под фундамент, погрузка грунта", "rate_from": 12000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
     { "id": "gusenichnyi-ekskavator", "kind": "excavator", "title": "Гусеничный экскаватор 20 т", "photo": "", "purpose": "Котлованы, демонтаж и большие объёмы грунта", "rate_from": 22000, "rate_to": null, "unit": "час", "min_units": 8, "status": "busy" },
-    { "id": "mini-pogruzchik", "kind": "loader", "title": "Мини-погрузчик", "photo": "", "purpose": "Уборка территории, планировка, работа в стеснённых местах", "rate_from": 9000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
+    { "id": "mini-pogruzchik", "kind": "mini_loader", "title": "Мини-погрузчик", "photo": "", "purpose": "Уборка территории, планировка, работа в стеснённых местах", "rate_from": 9000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
     { "id": "frontalnyi-pogruzchik", "kind": "loader", "title": "Фронтальный погрузчик 3 т", "photo": "", "purpose": "Погрузка сыпучих материалов, расчистка снега", "rate_from": 15000, "rate_to": null, "unit": "час", "min_units": 4, "status": "free" },
     { "id": "avtokran-25", "kind": "crane", "title": "Автокран 25 т", "photo": "", "purpose": "Монтаж конструкций, подъём грузов до 25 т", "rate_from": 20000, "rate_to": null, "unit": "час", "min_units": 4, "status": "confirm" },
     { "id": "manipulyator-7", "kind": "manipulator", "title": "Манипулятор 7 т", "photo": "", "purpose": "Перевозка и разгрузка блоков, стройматериалов, вагончиков", "rate_from": 13000, "rate_to": null, "unit": "час", "min_units": 3, "status": "free" },

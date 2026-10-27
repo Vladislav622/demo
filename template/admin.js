@@ -142,7 +142,7 @@
   $('#adm-reset').addEventListener('click', function () {
     S.Store.clear(slug);
     fill(base);
-    showToast('Вернули исходные данные из конфига', true);
+    showToast('Вернули исходные цены и статусы', true);
   });
 
   fill(S.getCompanyData());
