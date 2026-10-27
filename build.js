@@ -495,16 +495,26 @@ function pageVars(config) {
     review_items: reviewItems,
     contact_buttons: contactButtons,
     submit_label: whatsapp ? 'Отправить в WhatsApp' : 'Позвонить',
+    submit_short: whatsapp ? 'Отправить' : 'Позвонить',
+    submit_icon: uiIcon(whatsapp ? 'chat' : 'phone'),
     data_json: JSON.stringify(data).replace(/</g, '\\u003c'),
   };
+}
+
+// style.css и app.js встраиваются в index.html: страница грузится одним запросом
+// (на медленном мобильном интернете каждый лишний запрос — это ещё одна задержка сети).
+function inlineAssets() {
+  const read = (f) => fs.readFileSync(path.join(TEMPLATE_DIR, f), 'utf8').trim();
+  const css = read('style.css');
+  const js = read('app.js');
+  if (/<\/style/i.test(css) || /<\/script/i.test(js)) throw new Error('template: в style.css или app.js встречается закрывающий тег');
+  return { inline_css: `\n${css}\n`, inline_js: `\n${js}\n` };
 }
 
 function buildCompany(company, outRoot, tpl) {
   const dir = path.join(outRoot, company.folder);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, pageVars(company.config)));
-  fs.copyFileSync(path.join(TEMPLATE_DIR, 'style.css'), path.join(dir, 'style.css'));
-  fs.copyFileSync(path.join(TEMPLATE_DIR, 'app.js'), path.join(dir, 'app.js'));
+  fs.writeFileSync(path.join(dir, 'index.html'), render(tpl, { ...pageVars(company.config), ...inlineAssets() }));
   const img = path.join(COMPANIES_DIR, company.folder, 'img');
   if (fs.existsSync(img)) {
     fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });

@@ -6,7 +6,7 @@
 <!--if:demo--><meta name="robots" content="noindex, nofollow">
 <!--/if:demo--><title>{{page_title}}</title>
 <meta name="description" content="{{page_description}}">
-<link rel="stylesheet" href="style.css">
+<style>{{{inline_css}}}</style>
 {{{color_style}}}
 </head>
 <body>
@@ -15,7 +15,7 @@
 <!--/if:demo-->  <header class="top">
     <div class="wrap top__in">
       <a class="brand" href="#top">{{{brand_html}}}</a>
-      <a class="pill-btn" href="{{call_href}}">{{{call_icon}}}<span>{{call_label}}</span></a>
+      <a class="pill-btn" href="{{call_href}}" aria-label="{{call_label}}">{{{call_icon}}}<span class="pill-btn__text">{{call_label}}</span></a>
     </div>
   </header>
 </div>
@@ -181,11 +181,11 @@
 <div class="bar" id="bar" hidden>
   <div class="bar__in">
     <p class="bar__price js-price" id="bar-price" aria-live="polite"></p>
-    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit">{{submit_label}}</button>
+    <button type="button" class="btn btn--accent bar__btn js-submit" id="submit">{{{submit_icon}}}<span class="bar__long">{{submit_label}}</span><span class="bar__short">{{submit_short}}</span></button>
   </div>
 </div>
 
 <script id="site-data" type="application/json">{{{data_json}}}</script>
-<script src="app.js" defer></script>
+<script>{{{inline_js}}}</script>
 </body>
 </html>

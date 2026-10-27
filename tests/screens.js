@@ -4,7 +4,8 @@
 // node tests/screens.js <slug>
 //   Берёт preview/<slug>/ (после node build.js --test) или docs/<slug>/.
 //   Пишет checks/<slug>-360-full.png, -360-selected.png, -1280.png, -1280-selected.png
-//   и печатает проверки «да/нет». Код выхода 1, если какая-то проверка «нет».
+//   и печатает проверки «да/нет», плюс замер загрузки на «Slow 3G» без фото.
+//   Код выхода 1, если какая-то проверка «нет».
 
 'use strict';
 
@@ -13,6 +14,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'checks');
@@ -44,7 +46,15 @@ function serve(dir) {
     if (!file.startsWith(dir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404); res.end(); return;
     }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
+    const ext = path.extname(file);
+    const headers = { 'Content-Type': TYPES[ext] || 'application/octet-stream' };
+    // Как GitHub Pages: текстовые файлы отдаются сжатыми (SCREENS_NO_GZIP=1 — без сжатия).
+    if (!process.env.SCREENS_NO_GZIP && /gzip/.test(req.headers['accept-encoding'] || '') && ['.html', '.css', '.js', '.svg', '.txt'].includes(ext)) {
+      res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip' });
+      res.end(zlib.gzipSync(fs.readFileSync(file)));
+      return;
+    }
+    res.writeHead(200, headers);
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
@@ -88,6 +98,11 @@ async function main() {
   if (!slug) fail('укажите slug: node tests/screens.js _test');
   const base = ['preview', 'docs'].map((d) => path.join(ROOT, d)).find((d) => fs.existsSync(path.join(d, slug, 'index.html')));
   if (!base) fail(`нет preview/${slug}/index.html и docs/${slug}/index.html — сначала соберите: node build.js --test`);
+
+  // city_in из конфига: с ним заголовку первого экрана допустимо 3 строки.
+  const cfgFile = path.join(ROOT, 'companies', slug, 'config.json');
+  const cityIn = fs.existsSync(cfgFile) ? String(JSON.parse(fs.readFileSync(cfgFile, 'utf8')).city_in || '').trim() : '';
+  const heroMaxLines = cityIn ? 3 : 2;
 
   fs.mkdirSync(OUT, { recursive: true });
   const server = await serve(base);
@@ -173,7 +188,20 @@ async function main() {
     const btns = [...document.querySelectorAll('.hero__actions .btn')].map((e) => e.getBoundingClientRect());
     return { lines: Math.round(t.getBoundingClientRect().height / lh), h: Math.round(document.querySelector('.hero').getBoundingClientRect().height),
       stacked: btns.length < 2 || btns[1].top >= btns[0].bottom, oneLine: [...document.querySelectorAll('.hero__actions .btn')].every((e) => e.getBoundingClientRect().height < 60) }; })()`);
-  check('заголовок первого экрана ≤ 2 строк на 360px', hero.lines <= 2, `${hero.lines} строки, высота экрана ${hero.h}px`);
+  check(`заголовок первого экрана ≤ ${heroMaxLines} строк на 360px${cityIn ? ` (city_in «${cityIn}»)` : ''}`, hero.lines <= heroMaxLines,
+    `${hero.lines} строки, ${await js("getComputedStyle(document.querySelector('.hero__title')).fontSize")}, высота экрана ${hero.h}px`);
+  const head = await js(`(() => { const n = document.querySelector('.brand__name'), b = document.querySelector('.pill-btn'), r = b.getBoundingClientRect();
+    const t = document.querySelector('.pill-btn__text');
+    return { name: n ? { sw: n.scrollWidth, cw: n.clientWidth, overflow: getComputedStyle(n).textOverflow, ws: getComputedStyle(n).whiteSpace,
+      lines: Math.round(n.getBoundingClientRect().height / parseFloat(getComputedStyle(n).lineHeight)) } : null,
+      btn: { w: Math.round(r.width), h: Math.round(r.height), label: b.getAttribute('aria-label'), textShown: Boolean(t && t.getClientRects().length) } }; })()`);
+  if (head.name) {
+    check('шапка 360: название не обрезано (scrollWidth == clientWidth, без text-overflow, ≤ 2 строк)',
+      head.name.sw === head.name.cw && head.name.overflow !== 'ellipsis' && head.name.lines <= 2,
+      `${head.name.sw} = ${head.name.cw}, text-overflow: ${head.name.overflow}, строк: ${head.name.lines}`);
+  }
+  check('шапка 360: круглая кнопка 44×44 без подписи, с aria-label', head.btn.w === 44 && head.btn.h === 44 && !head.btn.textShown && Boolean(head.btn.label),
+    `${head.btn.w}×${head.btn.h}, aria-label «${head.btn.label}»`);
   check('кнопки первого экрана друг под другом, текст в одну строку', hero.stacked && hero.oneLine, '');
   const titles = await js(`[...document.querySelectorAll('.mc__title')].map((e) => ({ t: e.textContent, cut: e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1,
     lines: Math.round(e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight)) }))`);
@@ -207,6 +235,17 @@ async function main() {
   }
 
   await tap('#submit');
+  // Цена в панели: одна строка + «предварительно».
+  const BAR_LINES = `(() => { const el = document.getElementById('bar-price'), node = el.firstChild;
+    const range = document.createRange(); range.selectNodeContents(node);
+    const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+    return { text: node.textContent, lines: tops.size, small: el.querySelector('small')?.textContent || '', nowrap: getComputedStyle(el).whiteSpace,
+      fits: el.scrollWidth <= el.clientWidth, btn: document.getElementById('submit').innerText.trim() }; })()`;
+  const bar1 = await js(BAR_LINES);
+  check('панель 360: цена в одну строку + «предварительно», кнопка «Отправить»',
+    bar1.lines === 1 && bar1.fits && (!bar1.small || bar1.small === 'предварительно') && bar1.btn === 'Отправить',
+    `«${bar1.text}» — строк: ${bar1.lines}, ${bar1.small}, кнопка «${bar1.btn}»`);
+
   const firstErr = await js("({ f: document.querySelector('.field.is-invalid')?.dataset.field, msg: document.querySelector('.field.is-invalid .err')?.textContent })");
   check('пустая отправка: подсвечено первое незаполненное поле', Boolean(firstErr.f), `${firstErr.f}: ${firstErr.msg}`);
 
@@ -230,6 +269,8 @@ async function main() {
   await type('#client_phone', '+7 700 000 00 00');
   await tap('#consent');
   const price360 = await js("document.getElementById('bar-price').textContent");
+  const bar2 = await js(BAR_LINES);
+  check('панель 360 с доставкой: цена в одну строку', bar2.lines === 1 && bar2.fits, `«${bar2.text}» — строк: ${bar2.lines}`);
   await tap('#submit');
   await sleep(500);
 
@@ -258,6 +299,22 @@ async function main() {
   check('кнопки и чипы ≥ 44px (1280)', small1280.length === 0, JSON.stringify(small1280));
 
   check('нет ошибок JS', errors.length === 0, errors.join('; '));
+
+  // ---------- Slow 3G, без фото, без кэша ----------
+  // Пресет DevTools «Slow 3G»: задержка 2000 мс, ~400 Кбит/с в обе стороны.
+  await b.send('Network.enable');
+  await b.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await b.send('Network.setBlockedURLs', { urls: ['*/img/*', '*.jpg', '*.jpeg', '*.png', '*.webp'] });
+  await b.send('Network.emulateNetworkConditions', { offline: false, latency: 2000, downloadThroughput: 50000, uploadThroughput: 50000 });
+  await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 740, deviceScaleFactor: 1, mobile: true });
+  await b.send('Page.navigate', { url });
+  for (let i = 0; i < 300; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
+  const slow = await js(`(() => { const n = performance.getEntriesByType('navigation')[0];
+    const bytes = performance.getEntriesByType('resource').reduce((a, r) => a + (r.transferSize || 0), n.transferSize || 0);
+    return { dcl: Math.round(n.domContentLoadedEventEnd), load: Math.round(n.loadEventEnd), cards: document.querySelectorAll('.mc').length, kb: Math.round(bytes / 1024) }; })()`);
+  await b.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  check('Slow 3G без фото: сетка карточек до 3 с (DOMContentLoaded)', slow.dcl <= 3000 && slow.cards > 0,
+    `DOMContentLoaded ${(slow.dcl / 1000).toFixed(2)} с, load ${(slow.load / 1000).toFixed(2)} с, карточек ${slow.cards}, передано ${slow.kb} КБ${process.env.SCREENS_NO_GZIP ? ' (без gzip)' : ' (gzip)'}`);
 
   b.close();
   server.close();
