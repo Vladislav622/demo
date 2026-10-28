@@ -326,3 +326,11 @@ body.typing.has-bar { padding-bottom: 0; }
   .bar { display: none !important; }
   body.has-bar { padding-bottom: 0; }
 }
+
+/* Окно «Как используются данные» */
+.privacy-btn { display: inline-flex; align-items: center; margin-left: 36px; font-size: 15px; font-weight: 600; color: var(--text); }
+.privacy { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 22px 20px 20px; border: 0; border-radius: var(--r-card); background: var(--surface); color: var(--text); box-shadow: 0 20px 60px rgba(0, 0, 0, .3); overflow: auto; }
+.privacy::backdrop { background: rgba(0, 0, 0, .5); }
+.privacy h2 { margin: 0 0 12px; font-size: 20px; font-weight: 800; }
+.privacy p { margin: 0 0 10px; font-size: 15px; line-height: 1.45; }
+.privacy .btn { margin-top: 8px; min-height: 48px; }

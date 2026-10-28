@@ -5,7 +5,8 @@
 
 const assert = require('assert');
 const Calc = require('../template/core.js');
-const { pageVars, resolveChannel, render, palette, contrast } = require('../build.js');
+const { pageVars, resolveChannel, render, palette, contrast, withCsp } = require('../build.js');
+const crypto = require('crypto');
 
 const NB = ' '; // неразрывный пробел в суммах и количестве на странице
 const plain = (s) => String(s).replace(/ /g, ' ');
@@ -396,6 +397,18 @@ test('превью ссылки: с base_url — og:url, og:image и twitter:ima
   assert.strictEqual(withBase.page_description, 'Выберите технику, узнайте предварительную стоимость и отправьте заявку в WhatsApp');
   const noBase = pageVars(cfg, path.join(__dirname, '..', 'companies', '_sample'), { base_url: '' }).head_meta;
   assert.ok(!noBase.includes('og:url') && !noBase.includes('og:image') && noBase.includes('og:title'));
+});
+
+test('CSP: хеши встроенных <style> и <script>, JSON-блок не учитывается, style= и on…= — ошибка сборки', () => {
+  const sha = (x) => `'sha256-${crypto.createHash('sha256').update(x, 'utf8').digest('base64')}'`;
+  const html = withCsp('<head><meta charset="utf-8"><style>a{color:red}</style></head><body><script type="application/json">{"a":1}</script><script>go()</script></body>');
+  const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">/.exec(html)[1];
+  assert.ok(csp.includes(`style-src ${sha('a{color:red}')}`), csp);
+  assert.ok(csp.includes(`script-src ${sha('go()')};`), csp);
+  assert.ok(!csp.includes(sha('{"a":1}')) && !/unsafe-inline|frame-ancestors/.test(csp), csp);
+  assert.ok(/^default-src 'none'; img-src 'self' data:;/.test(csp) && /connect-src 'none'; base-uri 'none'; form-action 'none'$/.test(csp), csp);
+  assert.throws(() => withCsp('<meta charset="utf-8"><p style="color:red">x</p>'), /style=/);
+  assert.throws(() => withCsp('<meta charset="utf-8"><img src="a.png" onerror="x()">'), /on…=/);
 });
 
 // ---------- Запуск ----------

@@ -182,6 +182,7 @@
               <input type="checkbox" id="consent" name="consent">
               <span>Согласен на обработку персональных данных для связи по заявке</span>
             </label>
+            <button type="button" class="link-btn privacy-btn" id="privacy-btn" aria-haspopup="dialog" aria-controls="privacy">Как используются данные</button>
             <p class="err" id="err-consent" hidden></p>
           </div>
         </form>
@@ -260,6 +261,15 @@
     <button type="button" class="btn btn--accent bar__btn js-submit" id="submit"><span class="ico-slot" data-ch-icon>{{{send_icon}}}</span><span class="bar__long" data-ch-send>{{send_label}}</span><span class="bar__short">{{send_short}}</span></button>
   </div>
 </div>
+
+<dialog class="privacy" id="privacy" aria-labelledby="privacy-title">
+  <h2 id="privacy-title">Как используются данные</h2>
+  <p>Сайт не сохраняет ваши данные и никуда их не отправляет сам.</p>
+  <p>Когда вы нажимаете «Отправить», заявка открывается в {{messenger}} — вы отправляете её напрямую компании {{name}}.</p>
+  <p>Обрабатывает данные компания {{name}}: только чтобы связаться с вами по заявке.</p>
+  <p>Незаконченная форма хранится только в вашем браузере, до закрытия вкладки.</p>
+  <button type="button" class="btn btn--accent btn--block" id="privacy-close">Понятно</button>
+</dialog>
 
 <div class="sheet {{sheet_class}}" id="sheet" hidden>
   <div class="sheet__backdrop" data-close></div>

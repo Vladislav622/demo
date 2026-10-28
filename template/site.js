@@ -603,6 +603,22 @@
     });
   }
 
+  // ---------- Окно «Как используются данные» ----------
+
+  var privacy = $('#privacy');
+  if (privacy && typeof privacy.showModal === 'function') {
+    $('#privacy-btn').addEventListener('click', function () { privacy.showModal(); $('#privacy-close').focus(); });
+    $('#privacy-close').addEventListener('click', function () { privacy.close(); });
+    privacy.addEventListener('close', function () { $('#privacy-btn').focus(); });
+    // Нажатие на затемнение вокруг окна закрывает его.
+    privacy.addEventListener('click', function (e) {
+      var r = privacy.getBoundingClientRect();
+      if (e.target === privacy && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) privacy.close();
+    });
+  } else if (privacy) {
+    $('#privacy-btn').hidden = true;
+  }
+
   // ---------- Черновик формы (sessionStorage): данные не теряются при возврате «Назад» из мессенджера ----------
 
   var DRAFT_KEY = 'specsite-draft:' + data.slug;
