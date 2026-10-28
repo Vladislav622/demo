@@ -39,7 +39,23 @@
     <p class="adm-cur">Цены указаны в {{currency}}</p>
   </div>
 
-  <form id="adm-form" novalidate>
+  <details class="adm-help">
+    <summary>Как пользоваться</summary>
+    <ul>
+      <li>Цена: откройте «Цены и статусы», впишите число без копеек и нажмите «Сохранить». Пустое поле — на сайте «цена по запросу».</li>
+      <li>Техника на объекте: нажмите «Занята» и «Сохранить» — её нельзя будет выбрать в заявке.</li>
+      <li>Освободилась — «Свободна» и «Сохранить».</li>
+      <li>Заявка не пришла: проверьте номер в блоке «Контакт для заявок» внизу.</li>
+      <li>Затем нажмите «Отправить тестовую заявку себе» — должен открыться WhatsApp с вашим номером.</li>
+    </ul>
+  </details>
+
+  <div class="adm-mode" role="group" aria-label="Что показывать">
+    <button type="button" class="adm-mode__btn" data-mode="status" aria-pressed="true">Статусы</button>
+    <button type="button" class="adm-mode__btn" data-mode="full" aria-pressed="false">Цены и статусы</button>
+  </div>
+
+  <form id="adm-form" class="is-status" novalidate>
     <div class="adm-grid">
 {{{admin_cards}}}
     </div>
@@ -68,9 +84,14 @@
         </div>
         <span class="err" hidden></span>
       </div>
+      <div class="adm-test">
+        <a class="btn btn--outline" id="adm-test" href="#" target="_blank" rel="noopener noreferrer">{{{icon_wa_btn}}}Отправить тестовую заявку себе</a>
+        <span class="hint" id="adm-test-hint">Откроется WhatsApp на номер выше — так вы увидите, как приходят заявки</span>
+      </div>
     </section>
 
     <div class="adm-bar">
+      <p class="adm-dirty" id="adm-dirty" role="status" hidden>{{{icon_warn}}}Есть несохранённые изменения</p>
       <div class="adm-bar__in">
         <button type="button" class="btn btn--outline" id="adm-reset">Сбросить к исходным</button>
         <button type="submit" class="btn btn--accent" id="adm-save">Сохранить</button>

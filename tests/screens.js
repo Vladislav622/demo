@@ -97,7 +97,7 @@ function readConfig(slug) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const slug = args.find((a) => !a.startsWith('--'));
+  const slug = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--prefix');
   const quick = args.includes('--quick');
   if (!slug) fail('укажите slug: node tests/screens.js _sample');
   const base = ['preview', 'docs'].map((d) => path.join(ROOT, d)).find((d) => fs.existsSync(path.join(d, slug, 'index.html')));
@@ -109,8 +109,12 @@ async function main() {
   const nameMaxLines = Array.from(String(cfg.name || '')).length > 28 ? 3 : 2;
 
   fs.mkdirSync(OUT, { recursive: true });
-  const server = await serve(base);
-  const url = `http://127.0.0.1:${server.address().port}/${slug}/`;
+  // --prefix /repo/ — раздача из подпапки, как на GitHub Pages (https://<user>.github.io/<repo>/): все пути должны быть относительными.
+  const pi = args.indexOf('--prefix');
+  const prefix = pi >= 0 ? `/${args[pi + 1].replace(/^\/+|\/+$/g, '')}/` : '/';
+  const tag = prefix === '/' ? slug : `${slug}-${prefix.replace(/\//g, '')}`;
+  const server = await serve(base, prefix);
+  const url = `http://127.0.0.1:${server.address().port}${prefix}${slug}/`;
   const b = await launch();
 
   const errors = [];
@@ -120,6 +124,11 @@ async function main() {
     if (msg.method === 'Fetch.requestPaused') {
       navLinks.push(msg.params.request.url);
       b.send('Fetch.failRequest', { requestId: msg.params.requestId, errorReason: 'Aborted' }).catch(() => {});
+    }
+    // Диалог (например, beforeunload) не должен останавливать прогон — закрываем и считаем ошибкой.
+    if (msg.method === 'Page.javascriptDialogOpening') {
+      errors.push(`неожиданный диалог ${msg.params.type}: ${msg.params.message}`);
+      b.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
     }
   });
 
@@ -143,15 +152,18 @@ async function main() {
       // Ленивые картинки ниже экрана сами не загрузятся — догружаем перед съёмкой всей страницы.
       await js(`Promise.all([...document.images].map((i) => { i.loading = 'eager'; return i.decode().catch(() => {}); }))`);
       // vh при съёмке всей страницы растягивается — фиксируем высоту первого экрана; закреплённые снизу панели ставим в поток.
-      await js(`(() => { const s = document.createElement('style'); s.id = 'fix-shot'; const hero = document.querySelector('.hero');
-        s.textContent = '.adm-bar{position:static!important}' + (hero ? '.hero{min-height:' + hero.getBoundingClientRect().height + 'px!important;max-height:' + hero.getBoundingClientRect().height + 'px!important}' : '');
-        document.head.appendChild(s); })()`);
+      // Через CSSOM (element.style), а не <style>: страница под CSP и чужой <style> не примет.
+      await js(`(() => { const hero = document.querySelector('.hero'); const fixed = [];
+        const set = (e, prop, v) => { fixed.push([e, prop]); e.style.setProperty(prop, v, 'important'); };
+        document.querySelectorAll('.adm-bar').forEach((e) => set(e, 'position', 'static'));
+        if (hero) { const h = hero.getBoundingClientRect().height + 'px'; set(hero, 'min-height', h); set(hero, 'max-height', h); }
+        window.__fixShot = fixed; })()`);
       const size = await js('({ w: document.documentElement.clientWidth, h: document.documentElement.scrollHeight })');
       params = { ...params, captureBeyondViewport: true, clip: { x: 0, y: 0, width: size.w, height: size.h, scale: 1 } };
     }
     const r = await b.send('Page.captureScreenshot', params);
-    if (full) await js("document.getElementById('fix-shot')?.remove()");
-    const file = path.join(OUT, `${slug}-${name}.png`);
+    if (full) await js("(window.__fixShot || []).forEach(([e, prop]) => e.style.removeProperty(prop))");
+    const file = path.join(OUT, `${tag}-${name}.png`);
     fs.writeFileSync(file, Buffer.from(r.data, 'base64'));
     return path.relative(ROOT, file).split(path.sep).join('/');
   };
@@ -159,7 +171,7 @@ async function main() {
   const tap = async (sel) => {
     const p = await js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null;
       e.scrollIntoView({ block: 'center', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
-    if (!p) throw new Error(`нет элемента ${sel}`);
+    if (!p) throw new Error(`нет элемента ${sel} на ${await js("location.href")}`);
     for (const t of ['mousePressed', 'mouseReleased']) {
       await b.send('Input.dispatchMouseEvent', { type: t, x: p.x, y: p.y, button: 'left', clickCount: 1 });
     }
@@ -180,6 +192,11 @@ async function main() {
 
   await b.send('Page.enable');
   await b.send('Runtime.enable');
+  // Нарушения CSP: страница сообщает о них через привязку __csp (скрипт добавляется до кода страницы, CSP на него не действует).
+  const cspViolations = [];
+  b.on((msg) => { if (msg.method === 'Runtime.bindingCalled' && msg.params.name === '__csp') cspViolations.push(msg.params.payload); });
+  await b.send('Runtime.addBinding', { name: '__csp' });
+  await b.send('Page.addScriptToEvaluateOnNewDocument', { source: "document.addEventListener('securitypolicyviolation', (e) => window.__csp(location.pathname + ': ' + e.violatedDirective + ' ' + (e.blockedURI || '') + ' ' + (e.sample || '')));" });
   await b.send('Fetch.enable', { patterns: [{ urlPattern: 'https://wa.me/*' }, { urlPattern: 'https://api.whatsapp.com/*' }, { urlPattern: 'https://t.me/*' }] });
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   await b.send('Browser.grantPermissions', { origin: new URL(url).origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] }).catch(() => {});
@@ -548,6 +565,7 @@ async function main() {
     const r = await js(CUT);
     if (r.sw !== r.iw || r.bad.length) widthIssues.push(`${w}: ${r.sw}/${r.iw} ${r.bad.join(',')}`);
     if (w === 1920 && r.wrap > 1240) widthIssues.push(`1920: контейнер ${r.wrap}px`);
+    if (w === 390 || w === 1920) shots.push(await shot(`${w}-full`, true));
   }
   check('ширины 320/360/390/412/768/1024/1280/1440/1920: без горизонтального скролла и обрезки, на 1920 контейнер ≤ 1240px', !widthIssues.length, widthIssues.join('; ') || 'все ширины');
 
@@ -576,6 +594,39 @@ async function main() {
   check('iOS: шрифт полей ≥ 16px (нет зума), safe-area у панели и окна, dvh, sticky, tap-highlight, инерционная лента, нет 100vh',
     ios.minFont >= 16 && ios.safe && ios.dvh && ios.sticky === 'sticky' && ios.tap && ios.inertia && !ios.vh100, JSON.stringify(ios));
 
+  // ---------- 404: плашка демо, noindex, без списка компаний ----------
+  await open(360, 740, true, `${url}net-takoy-stranicy/`);
+  const nf = await js(`({ robots: document.querySelector('meta[name=robots]')?.content, demo: document.querySelector('.demo-bar')?.textContent || '',
+    links: document.querySelectorAll('a').length, h1: document.querySelector('h1')?.textContent, sw: document.documentElement.scrollWidth, iw: innerWidth })`);
+  check('404: «Страница не найдена», плашка демо, noindex, ни одной ссылки (списка компаний нет)', nf.robots === 'noindex, nofollow' && /^Демо-концепт/.test(nf.demo)
+    && nf.links === 0 && nf.h1 === 'Страница не найдена' && nf.sw === nf.iw, JSON.stringify(nf));
+
+  // ---------- Безопасность: CSP, внешние ссылки, окно «Как используются данные» ----------
+  await open(360, 740, true);
+  const sec = await js(`(() => { const m = document.querySelector('meta[http-equiv="Content-Security-Policy"]'); const c = m ? m.content : '';
+    return { csp: c, unsafe: /unsafe-inline/.test(c), first: document.head.firstElementChild.nextElementSibling === m,
+      rel: [...document.querySelectorAll('a[target="_blank"]')].filter((a) => !a.relList.contains('noopener') || !a.relList.contains('noreferrer')).map((a) => a.textContent.trim()) }; })()`);
+  check("CSP: meta в начале head, default-src 'none', хеши вместо 'unsafe-inline', connect-src/base-uri/form-action 'none'",
+    sec.first && !sec.unsafe && /default-src 'none'/.test(sec.csp) && /img-src 'self' data:/.test(sec.csp) && /style-src 'sha256-/.test(sec.csp) && /script-src 'sha256-/.test(sec.csp)
+    && /connect-src 'none'/.test(sec.csp) && /base-uri 'none'/.test(sec.csp) && /form-action 'none'/.test(sec.csp) && !/frame-ancestors/.test(sec.csp), sec.csp.slice(0, 80));
+  check('внешние ссылки target=_blank — rel="noopener noreferrer"', sec.rel.length === 0, sec.rel.join(', '));
+  const ABS = `[...document.querySelectorAll('[href], [src], [srcset]')].flatMap((e) => [e.getAttribute('href'), e.getAttribute('src'), ...(e.getAttribute('srcset') || '').split(',').map((x) => x.trim().split(' ')[0])])
+    .filter((v) => v && v.startsWith('/') && !v.startsWith('//'))`;
+  const absSite = await js(ABS);
+  check(`пути относительные (сайт работает из подпапки, сейчас ${prefix})`, absSite.length === 0 && await js('document.images.length === 0 || [...document.images].filter((i) => i.complete && i.currentSrc).every((i) => i.naturalWidth > 0)'), absSite.join(', '));
+  // Ссылка видна, только если есть форма с согласием (нет при «всё занято» и «только телефон»).
+  if (await js("document.getElementById('privacy-btn').getClientRects().length > 0")) {
+    await tap('#privacy-btn');
+    const pv = await js(`(() => { const d = document.getElementById('privacy'); return { open: d.open, text: d.textContent.split(String.fromCharCode(10)).map((x) => x.trim()).join(' '),
+      name: document.querySelector('.brand__name').textContent.trim(), focus: document.activeElement.id }; })()`);
+    check('«Как используются данные» → окно: не сохраняются на сайте, напрямую в мессенджер компании, обрабатывает компания {name}',
+      pv.open && /не сохраняет/.test(pv.text) && /напрямую компании/.test(pv.text) && pv.text.includes(`Обрабатывает данные компания ${pv.name}`) && pv.focus === 'privacy-close', pv.text.slice(0, 90));
+    shots.push(await shot('360-privacy', false));
+    await key('Escape');
+    const pc = await js("({ open: document.getElementById('privacy').open, focus: document.activeElement.id })");
+    check('окно данных: Esc закрывает, фокус возвращается на ссылку', !pc.open && pc.focus === 'privacy-btn', JSON.stringify(pc));
+  }
+
   // ---------- Панель владельца (демо-режим, localStorage) ----------
   const adminUrl = `${url}admin/`;
   await open(360, 740, true, adminUrl);
@@ -583,15 +634,78 @@ async function main() {
     warn: document.querySelector('.adm-warn').textContent.trim(), sw: document.documentElement.scrollWidth, iw: innerWidth })`);
   check('панель: плашка демо, noindex, полоса «Демо-режим панели…»', adm.demo && adm.robots === 'noindex, nofollow' && /^Демо-режим панели/.test(adm.warn), '');
   check('панель 360: нет горизонтального скролла', adm.sw === adm.iw, `${adm.sw} = ${adm.iw}`);
+  const absAdm = await js(ABS);
+  check(`панель: пути относительные (подпапка ${prefix})`, absAdm.length === 0, absAdm.join(', '));
   const ast = await js(`(${structureProbe})()`);
   check('панель: lang, header/main/footer, один h1, заголовки без пропусков, у полей подписи', ast.lang === 'ru' && !ast.landmarks.length && ast.h1 === 1 && !ast.skip && !ast.unlabeled.length,
     `${ast.skip}${ast.landmarks.length ? ` нет ${ast.landmarks}` : ''}${ast.unlabeled.length ? ` без подписи: ${ast.unlabeled}` : ''}`);
   const cAdm = await js(`(${contrastProbe})()`);
   check('контраст текста ≥ 4,5:1 (панель)', cAdm.total === 0, `проверено ${cAdm.n}${cAdm.total ? `; ниже нормы: ${cAdm.bad.join(', ')}` : ''}`);
   check('панель 360: кнопки и поля ≥ 44px', (await js(SMALL)).length === 0, JSON.stringify(await js(SMALL)));
+  const mode = await js(`(() => { const vis = (e) => Boolean(e && e.getClientRects().length);
+    const card = document.querySelector('.ac'); const tops = [...card.querySelectorAll('.seg__btn')].map((x) => Math.round(x.getBoundingClientRect().top));
+    const help = document.querySelector('details.adm-help');
+    return { toggle: vis(document.querySelector('.adm-mode')), def: document.querySelector('[data-mode="status"]').getAttribute('aria-pressed'),
+      rate: vis(card.querySelector('[name="rate"]')), thumb: vis(card.querySelector('.ac__thumb')), oneRow: new Set(tops).size === 1,
+      help: help && !help.open && help.querySelector('summary').textContent.trim(), helpLines: help ? help.querySelectorAll('li').length : 0 }; })()`);
+  check('панель 360: режим «Статусы» по умолчанию — миниатюра, название, три кнопки статуса в строку, без полей цены',
+    mode.toggle && mode.def === 'true' && !mode.rate && mode.thumb && mode.oneRow, JSON.stringify(mode));
+  check('панель: свёрнутая справка «Как пользоваться», 5–6 строк', mode.help === 'Как пользоваться' && mode.helpLines >= 5 && mode.helpLines <= 6, `${mode.helpLines} строк`);
   shots.push(await shot('admin-360', true));
+  await tap('[data-mode="full"]');
+  const full = await js(`({ rate: Boolean(document.querySelector('.ac [name="rate"]').getClientRects().length), pressed: document.querySelector('[data-mode="full"]').getAttribute('aria-pressed') })`);
+  check('панель 360: «Цены и статусы» показывает поля цены', full.rate && full.pressed === 'true', JSON.stringify(full));
+  check('панель 360 «Цены и статусы»: кнопки и поля ≥ 44px', (await js(SMALL)).length === 0, JSON.stringify(await js(SMALL)));
+  shots.push(await shot('admin-360-full', true));
   await open(1280, 800, false, adminUrl);
+  const desk = await js(`({ toggle: Boolean(document.querySelector('.adm-mode').getClientRects().length), rate: Boolean(document.querySelector('.ac [name="rate"]').getClientRects().length) })`);
+  check('панель 1280: переключателя нет, поля цены видны', !desk.toggle && desk.rate, JSON.stringify(desk));
   shots.push(await shot('admin-1280', true));
+
+  // Проверка полей: цена — целое > 0, мин. смена — целое ≥ 1; ошибка не даёт сохранить.
+  const INVALID = `[...document.querySelectorAll('.is-invalid')].map((f) => { const i = f.querySelector('input'); const e = f.querySelector('.err');
+    return { text: e.textContent, aria: i ? i.getAttribute('aria-invalid') === 'true' && i.getAttribute('aria-describedby') === e.id : true }; })`;
+  const firstId = await js("document.querySelector('.ac').dataset.id");
+  const bad = [];
+  for (const [name, value] of [['rate', '15,5'], ['rate', '0'], ['min', '0'], ['min', '2ч']]) {
+    await setValue(`.ac[data-id="${firstId}"] [name="${name}"]`, value);
+    await tap('#adm-save');
+    const inv = await js(INVALID);
+    const saved = await js(`localStorage.getItem('specsite-demo:' + JSON.parse(document.getElementById('site-data').textContent).slug)`);
+    if (inv.length !== 1 || !inv[0].aria || saved) bad.push(`${name}=${value}: ${JSON.stringify(inv)} ${saved ? 'сохранено' : ''}`);
+    await tap('#adm-reset');
+  }
+  check('панель: «15,5», «0» в цене и «0», «2ч» в мин. смене — ошибка у поля (aria-invalid), не сохраняется', bad.length === 0, bad.join('; '));
+  await setValue(`.ac[data-id="${firstId}"] [name="rate"]`, '');
+  if (await js(`Boolean(document.querySelector('.ac[data-id="${firstId}"] [name="rate_to"]'))`)) await setValue(`.ac[data-id="${firstId}"] [name="rate_to"]`, '');
+  await tap('#adm-save');
+  const emptyOk = await js(`(${INVALID}).length === 0 && !document.getElementById('adm-toast').hidden`);
+  check('панель: пустая цена допустима — подпись «Пусто — «цена по запросу»»', emptyOk && await js("document.querySelector('.ac__field .hint').textContent === 'Пусто — «цена по запросу»'"), '');
+  await tap('#adm-reset');
+
+  // WhatsApp: номер не для Казахстана — предупреждение, не запрет; тестовая заявка на номер из панели.
+  const waBefore = await js("document.getElementById('adm-wa').value");
+  await setValue('#adm-wa', '4915112345678');
+  const waWarn = await js(`({ warn: !document.getElementById('adm-wa-warn').hidden, inv: (${INVALID}).length, href: document.getElementById('adm-test').href })`);
+  check('панель: WhatsApp не 7XXXXXXXXXX — предупреждение «Проверьте номер», ошибки нет', waWarn.warn && waWarn.inv === 0, JSON.stringify(waWarn));
+  check('панель: «Отправить тестовую заявку себе» → wa.me на номер из панели с текстом «Тестовая заявка с сайта — всё работает ✓»',
+    waWarn.href === 'https://wa.me/4915112345678?text=' + encodeURIComponent('Тестовая заявка с сайта — всё работает ✓')
+    && await js("document.getElementById('adm-test').rel === 'noopener noreferrer'"), waWarn.href);
+  await setValue('#adm-wa', '');
+  const noWa = await js("({ dis: document.getElementById('adm-test').getAttribute('aria-disabled'), hint: document.getElementById('adm-test-hint').textContent })");
+  check('панель: без номера тестовая заявка неактивна и подсказывает «Сначала укажите номер WhatsApp»', noWa.dis === 'true' && /^Сначала укажите номер WhatsApp/.test(noWa.hint), JSON.stringify(noWa));
+  await setValue('#adm-wa', waBefore);
+
+  // Несохранённые изменения: плашка, beforeunload, подтверждение у «Открыть сайт».
+  const clean = await js("document.getElementById('adm-dirty').hidden");
+  await tap(`.ac[data-id="${firstId}"] .seg__btn[aria-pressed="false"]`);
+  const dirty = await js(`(() => { const ev = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(ev);
+    let asked = ''; const orig = window.confirm; window.confirm = (m) => { asked = m; return false; };
+    document.querySelector('.adm-site').click(); window.confirm = orig;
+    return { banner: !document.getElementById('adm-dirty').hidden && document.getElementById('adm-dirty').textContent.trim(), prevented: ev.defaultPrevented, asked, stay: /admin/.test(location.pathname) }; })()`);
+  check('панель: без изменений плашки нет; после изменения — «Есть несохранённые изменения», предупреждение при уходе и при «Открыть сайт»',
+    clean && dirty.banner === 'Есть несохранённые изменения' && dirty.prevented && /несохранённые/.test(dirty.asked) && dirty.stay, JSON.stringify(dirty));
+  await tap('#adm-reset');
 
   // Сценарий: свободной позиции — «Занята» и новая цена; «требует подтверждения» (или занятой, если всё занято) — «Свободна».
   const target = F.free[0] || null;
@@ -604,7 +718,8 @@ async function main() {
   await tap('#adm-save');
   const toast = await js("!document.getElementById('adm-toast').hidden && document.querySelector('#adm-toast span').textContent");
   const admErr = await js("[...document.querySelectorAll('.field.is-invalid')].map((f) => f.dataset.field + ': ' + f.querySelector('.err').textContent).join('; ') + ' | ' + location.href");
-  check('панель: «Сохранить» → тост «Сохранено. Откройте сайт, чтобы проверить»', toast === 'Сохранено. Откройте сайт, чтобы проверить', `${toast} ${toast ? '' : admErr}`);
+  check('панель: «Сохранить» → тост «Сохранено. Откройте сайт, чтобы проверить», плашка изменений исчезла', toast === 'Сохранено. Откройте сайт, чтобы проверить'
+    && await js("document.getElementById('adm-dirty').hidden"), `${toast} ${toast ? '' : admErr}`);
   const STATE = (id) => `(() => { const c = document.querySelector('.mc[data-id="${id}"]'); const opts = [...document.querySelectorAll('#machine option')].map((o) => o.value);
     return { status: c.dataset.status, chip: c.querySelector('.status').className, disabled: c.querySelector('.mc__btn').disabled,
       price: c.querySelector('.mc__price').textContent.replace(/\\u00a0/g, ' '), inSelect: opts.includes('${id}'),
@@ -630,6 +745,7 @@ async function main() {
   check('«Сбросить к исходным» → сайт как в конфиге', resetOk, '');
 
   check('нет ошибок JS', errors.length === 0, errors.join('; '));
+  check('CSP: в консоли нет нарушений (сайт и панель)', cspViolations.length === 0, cspViolations.slice(0, 4).join('; '));
 
   // ---------- Скорость: внешние запросы и вес фото ----------
   const requests = [];
@@ -676,7 +792,7 @@ async function main() {
   server.close();
 
   const ok = checks.every((c) => c.ok);
-  fs.writeFileSync(path.join(OUT, `${slug}-result.json`), JSON.stringify({ slug, ok, yes: checks.filter((c) => c.ok).length, no: checks.filter((c) => !c.ok).length, checks, shots, notes, slow, sheetText, sheetLink }, null, 2));
+  fs.writeFileSync(path.join(OUT, `${tag}-result.json`), JSON.stringify({ slug, prefix, ok, yes: checks.filter((c) => c.ok).length, no: checks.filter((c) => !c.ok).length, checks, shots, notes, slow, sheetText, sheetLink }, null, 2));
   console.log(`Страница: ${slug} (${path.relative(ROOT, base)}/${slug}/)`);
   console.log('Скриншоты:');
   shots.forEach((s) => console.log(`  ${s}`));

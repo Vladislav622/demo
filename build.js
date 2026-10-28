@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const zlib = require('zlib');
 const Calc = require('./template/core.js');
 
@@ -565,6 +566,31 @@ const ROOT_INDEX = `<!doctype html>
 </html>
 `;
 const ROBOTS_TXT = 'User-agent: *\nDisallow: /\n';
+// GitHub Pages отдаёт 404.html на любой несуществующий адрес: только плашка демо и noindex, без списка компаний.
+const NOT_FOUND = `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Страница не найдена</title>
+<style>
+body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d1f1c; background: #f6f6f3; }
+.demo-bar { padding: 8px 16px; background: #fff3c4; color: #3d3200; font-size: 14px; text-align: center; }
+main { max-width: 560px; margin: 0 auto; padding: 48px 16px; }
+h1 { margin: 0 0 12px; font-size: 26px; }
+p { margin: 0; color: #4f534c; }
+</style>
+</head>
+<body>
+<div class="demo-bar" role="note">Демо-концепт, не официальный сайт, удалим по первой просьбе</div>
+<main>
+<h1>Страница не найдена</h1>
+<p>Проверьте адрес: возможно, в ссылке опечатка.</p>
+</main>
+</body>
+</html>
+`;
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -896,6 +922,7 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug)), s
     send_icon: uiIcon(CH.icon),
     is_phone: channel === 'phone',
     consent_attr: channel === 'phone' ? ' hidden' : '',
+    messenger: channel === 'telegram' ? 'Telegram' : 'WhatsApp',
     sheet_class: `sheet--${channel === 'telegram' ? 'telegram' : 'whatsapp'}`,
     sheet_title: channel === 'telegram' ? 'Заявка для Telegram' : 'Заявка для WhatsApp',
     open_label: channel === 'telegram' ? 'Открыть Telegram' : 'Открыть WhatsApp',
@@ -962,6 +989,26 @@ function minHtml(html) {
   return html.split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
 }
 
+// CSP без 'unsafe-inline': разрешены только встроенные <style> и <script> этой страницы — по sha256 их текста.
+// JSON-блок (type="application/json") не исполняется и под script-src не попадает.
+function withCsp(html) {
+  const hash = (s) => `'sha256-${crypto.createHash('sha256').update(s, 'utf8').digest('base64')}'`;
+  const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => hash(m[1]));
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => hash(m[1]));
+  if (/<script(?![^>]*application\/json)[^>]+>/.test(html.replace(/<script>/g, ''))) throw new Error('CSP: встроенный <script> с атрибутами — хеш не посчитан');
+  if (/\sstyle="|\son[a-z]+="/i.test(html)) throw new Error('CSP: атрибут style= или on…= в HTML — уберите в CSS/JS');
+  const policy = [
+    "default-src 'none'",
+    "img-src 'self' data:",
+    `style-src ${[...new Set(styles)].join(' ') || "'none'"}`,
+    `script-src ${[...new Set(scripts)].join(' ') || "'none'"}`,
+    "connect-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; ');
+  return html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy" content="${policy}">`);
+}
+
 function inlineAssets(kind) {
   const read = (f) => fs.readFileSync(path.join(TEMPLATE_DIR, f), 'utf8').trim();
   const css = minCss(`${read('base.css')}\n${read(`${kind}.css`)}`);
@@ -995,17 +1042,22 @@ function adminVars(config, site) {
       '          <label class="ac__field">',
       `            <span class="field__label">Цена за ${per}${range ? ', от' : ''}</span>`,
       `            <span class="ctl"><span class="ctl__prefix">${esc(currency)}</span><input class="input" type="text" inputmode="numeric" name="rate" placeholder="по запросу" autocomplete="off"></span>`,
+      '            <span class="hint">Пусто — «цена по запросу»</span>',
+      '            <span class="err" hidden></span>',
       '          </label>',
       range ? [
         '          <label class="ac__field">',
         `            <span class="field__label">Цена за ${per}, до</span>`,
         `            <span class="ctl"><span class="ctl__prefix">${esc(currency)}</span><input class="input" type="text" inputmode="numeric" name="rate_to" placeholder="без «до»" autocomplete="off"></span>`,
+        '            <span class="hint">Пусто — без «до»</span>',
+        '            <span class="err" hidden></span>',
         '          </label>',
       ].join('\n') : null,
       '          <label class="ac__field">',
       `            <span class="field__label"><span class="lbl-full">${hour ? 'Минимальная смена' : 'Минимальный заказ'}</span><span class="lbl-short">${hour ? 'Мин. смена' : 'Мин. заказ'}</span></span>`,
       `            <span class="ctl">${uiIcon('clock', 'ui ctl__ico')}<input class="input" type="text" inputmode="numeric" name="min" placeholder="нет" autocomplete="off"></span>`,
-      `            <span class="hint">${hour ? 'часов' : esc(Calc.plural(5, m.unit))}</span>`,
+      `            <span class="hint">${hour ? 'часов' : esc(Calc.plural(5, m.unit))}, пусто — без минимума</span>`,
+      '            <span class="err" hidden></span>',
       '          </label>',
       '        </div>',
       '        <div class="ac__status">',
@@ -1013,7 +1065,7 @@ function adminVars(config, site) {
       `          <div class="seg" role="group" aria-labelledby="st-${esc(m.id)}">`,
       '            <button type="button" class="seg__btn seg__btn--free" data-status="free" aria-pressed="false">Свободна</button>',
       '            <button type="button" class="seg__btn seg__btn--busy" data-status="busy" aria-pressed="false">Занята</button>',
-      '            <button type="button" class="seg__btn seg__btn--confirm" data-status="confirm" aria-pressed="false">Требует подтверждения</button>',
+      '            <button type="button" class="seg__btn seg__btn--confirm" data-status="confirm" aria-pressed="false">Требует подтвер&shy;ждения</button>',
       '          </div>',
       '        </div>',
       '      </article>',
@@ -1026,6 +1078,7 @@ function adminVars(config, site) {
     icon_warn: uiIcon('alert'),
     icon_wa: uiIcon('chat', 'ui ctl__ico'),
     icon_tg: uiIcon('plane', 'ui ctl__ico'),
+    icon_wa_btn: uiIcon('chat'),
     icon_ext: uiIcon('external', 'ui ui--sm'),
   };
 }
@@ -1036,9 +1089,9 @@ function buildCompany(company, outRoot, tpl, adminTpl, siteCfg = { base_url: '' 
   fs.mkdirSync(dir, { recursive: true });
   const site = { ...pageVars(company.config, company.dir, siteCfg), dir: company.dir };
   fs.writeFileSync(path.join(dir, 'apple-touch-icon.png'), touchIcon(palette(company.config.colors || {})));
-  fs.writeFileSync(path.join(dir, 'index.html'), minHtml(render(tpl, { ...site, ...inlineAssets('site') }, 'template/index.html')));
+  fs.writeFileSync(path.join(dir, 'index.html'), withCsp(minHtml(render(tpl, { ...site, ...inlineAssets('site') }, 'template/index.html'))));
   fs.mkdirSync(path.join(dir, 'admin'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), minHtml(render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets('admin') }, 'template/admin.html')));
+  fs.writeFileSync(path.join(dir, 'admin', 'index.html'), withCsp(minHtml(render(adminTpl, { ...adminVars(company.config, site), ...inlineAssets('admin') }, 'template/admin.html'))));
   const img = path.join(company.dir, 'img');
   if (fs.existsSync(img)) {
     fs.cpSync(img, path.join(dir, 'img'), { recursive: true, filter: (src) => path.basename(src) !== '.gitkeep' });
@@ -1050,16 +1103,101 @@ function buildCompany(company, outRoot, tpl, adminTpl, siteCfg = { base_url: '' 
   }
 }
 
+function writeRootFiles(outRoot) {
+  fs.mkdirSync(outRoot, { recursive: true });
+  fs.writeFileSync(path.join(outRoot, 'index.html'), withCsp(ROOT_INDEX));
+  fs.writeFileSync(path.join(outRoot, '404.html'), withCsp(minHtml(NOT_FOUND)));
+  fs.writeFileSync(path.join(outRoot, 'robots.txt'), ROBOTS_TXT);
+  fs.writeFileSync(path.join(outRoot, '.nojekyll'), '');
+}
+
+// node build.js new <slug> — заготовка компании: config.json со всеми полями (пустыми) и папка img/.
+function newCompany(slug) {
+  if (!slug || !SLUG_RE.test(slug) || slug.startsWith('_')) {
+    console.error('Укажите slug: латиница в нижнем регистре, цифры и «-», например: node build.js new stroy-tehnika');
+    process.exit(1);
+  }
+  const dir = path.join(COMPANIES_DIR, slug);
+  const file = path.join(dir, 'config.json');
+  if (fs.existsSync(file)) {
+    console.error(`companies/${slug}/config.json уже есть — не перезаписываю. Удалите его сами, если нужно начать заново.`);
+    process.exit(1);
+  }
+  const config = {
+    demo: true, slug, name: '', tagline: '', logo: '', city: '', city_in: '', address: '', schedule: '',
+    phone: '', whatsapp: '', telegram: '', channel: '', colors: { primary: '', accent: '' },
+    hero_title: '', hero_photo: '', delivery_time_text: '', park_note: '',
+    features: [{ icon: '', title: '', text: '' }],
+    about: '', reviews_summary: [], source_2gis: '', currency: '', price_note: '',
+    machines: [{ id: '', kind: '', title: '', photo: '', purpose: '', rate_from: null, rate_to: null, unit: '', min_units: null, status: '' }],
+    zones: [{ title: '', delivery_from: null, delivery_to: null }],
+  };
+  fs.mkdirSync(path.join(dir, 'img'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'img', '.gitkeep'), '');
+  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  console.log(`Создано: companies/${slug}/config.json и companies/${slug}/img/`);
+  console.log('Дальше: заполните config.json (подсказки — КАРТОЧКА_КОМПАНИИ.md), затем node build.js check');
+}
+
+// node build.js check [--test] — проверка без сборки, таблица по компаниям.
+function checkCompanies(includeTest) {
+  const rows = [];
+  let failed = 0;
+  for (const { folder, dir } of companyFolders(includeTest)) {
+    const { rel, config, errors: readErrors } = readConfig(path.join(dir, 'config.json'));
+    let errors = readErrors;
+    let warnings = [];
+    if (config) {
+      const result = validate(config, rel, folder, dir, resolvePlaceholders(config, folder));
+      errors = result.errors;
+      warnings = result.warnings;
+    }
+    const machines = config && Array.isArray(config.machines) ? config.machines : [];
+    const photos = machines.filter((m) => m && str(m.photo) && fs.existsSync(path.join(dir, str(m.photo)))).length;
+    if (errors.length) failed++;
+    rows.push({ folder, errors, warnings, n: machines.length,
+      photos: machines.length ? (photos ? `${photos} из ${machines.length}` : 'нет') : '—', channel: !config ? '—' : (str(config.whatsapp) || str(config.telegram) || str(config.phone) ? resolveChannel(config) : 'нет') });
+  }
+  if (!rows.length) {
+    console.log(`Компаний нет${includeTest ? '' : ' (тестовые папки на «_» — с --test)'}. Новая: node build.js new <slug>`);
+    return;
+  }
+  const w = Math.max(4, ...rows.map((r) => r.folder.length));
+  console.log(`${'slug'.padEnd(w)} | ошибок | предупреждений | позиций | фото     | канал`);
+  for (const r of rows) {
+    console.log(`${r.folder.padEnd(w)} | ${String(r.errors.length).padStart(6)} | ${String(r.warnings.length).padStart(14)} | ${String(r.n).padStart(7)} | ${r.photos.padEnd(8)} | ${r.channel}`);
+  }
+  for (const r of rows) {
+    for (const e of r.errors) console.log(`  ✗ ${e}`);
+    for (const e of r.warnings) console.log(`  ! ${e}`);
+  }
+  console.log(failed ? `\nОшибки есть у ${failed} из ${rows.length} — исправьте и запустите снова.` : `\nВсё в порядке: ${rows.length}. Сборка: node build.js`);
+  if (failed) process.exit(1);
+}
+
 function main() {
-  const includeTest = process.argv.includes('--test');
+  const args = process.argv.slice(2);
+  if (args[0] === 'new') return newCompany(args[1]);
+  if (args[0] === 'check') return checkCompanies(args.includes('--test'));
+  const includeTest = args.includes('--test');
   const outDir = includeTest ? 'preview' : 'docs';
+  const oi = args.indexOf('--only');
+  const only = oi >= 0 ? args[oi + 1] : null;
+  if (oi >= 0 && !only) {
+    console.error('Укажите slug: node build.js --only <slug>');
+    process.exit(1);
+  }
 
   if (!fs.existsSync(COMPANIES_DIR)) {
     console.error('Ошибка: нет папки companies/');
     process.exit(1);
   }
 
-  const { folders, companies, errors, warnings } = loadCompanies(includeTest);
+  const { folders, companies, errors, warnings } = loadCompanies(includeTest, only);
+  if (only && !folders.length) {
+    console.error(`Нет компании ${only}${only.startsWith('_') && !includeTest ? ' (тестовые — вместе с --test)' : ''}`);
+    process.exit(1);
+  }
 
   for (const w of warnings) console.warn(`Предупреждение: ${w}`);
 
@@ -1084,11 +1222,9 @@ function main() {
   if (!siteCfg.base_url && companies.length) {
     console.warn('Предупреждение: site.json: base_url пуст — og:url и og:image (превью ссылки) пропущены. Укажите адрес публикации, например https://<user>.github.io/<repo>');
   }
-  fs.rmSync(outRoot, { recursive: true, force: true });
-  fs.mkdirSync(outRoot, { recursive: true });
-  fs.writeFileSync(path.join(outRoot, 'index.html'), ROOT_INDEX);
-  fs.writeFileSync(path.join(outRoot, 'robots.txt'), ROBOTS_TXT);
-  fs.writeFileSync(path.join(outRoot, '.nojekyll'), '');
+  // С --only пересобирается одна компания, остальные папки не трогаются.
+  if (!only) fs.rmSync(outRoot, { recursive: true, force: true });
+  writeRootFiles(outRoot);
 
   for (const company of companies) {
     buildCompany(company, outRoot, tpl, adminTpl, siteCfg);
@@ -1099,4 +1235,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel, palette, contrast, esc, readSite };
+module.exports = { validate, readConfig, loadCompanies, render, pageVars, neededStock, resolveChannel, palette, contrast, esc, readSite, buildCompany, withCsp };

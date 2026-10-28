@@ -8,7 +8,7 @@
 .adm-warn .ui { width: 18px; height: 18px; margin-top: 1px; color: var(--accent-text); }
 .adm-warn--error { background: #fdecea; color: #7a1a12; border-color: #f5c2bc; }
 
-.adm { padding-top: 24px; padding-bottom: 120px; }
+.adm { padding-top: 24px; padding-bottom: 170px; }
 .adm-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 16px; }
 .adm-head h1 { font-size: 26px; font-weight: 900; letter-spacing: -0.02em; }
 .adm-cur { margin: 0; font-size: 13px; color: var(--muted); }
@@ -54,6 +54,46 @@
 .seg__btn--confirm[aria-pressed="true"] { background: #fff3d1; color: #6e4a00; box-shadow: inset 0 0 0 2px #e2b93b; }
 .seg__btn--on[aria-pressed="true"] { background: var(--primary); color: var(--primary-ink); box-shadow: none; }
 
+/* Ошибки и предупреждения полей */
+.ac__field .err, .adm-contact .err { display: block; }
+.ac__field.is-invalid .input { box-shadow: inset 0 0 0 2px var(--error); }
+.warn-text { display: block; margin-top: 6px; font-size: 13px; line-height: 1.35; color: #7a4a00; }
+
+/* Справка */
+.adm-help { margin: 0 0 16px; background: var(--surface); border-radius: var(--r-card); box-shadow: 0 0 0 1px var(--line); }
+.adm-help summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; font-weight: 800; cursor: pointer; list-style: none; }
+.adm-help summary::-webkit-details-marker { display: none; }
+.adm-help summary::after { content: ""; width: 9px; height: 9px; margin: -4px 4px 0 12px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.adm-help[open] summary::after { margin-top: 4px; transform: rotate(-135deg); }
+.adm-help ul { margin: 0; padding: 0 16px 14px 34px; font-size: 14px; line-height: 1.45; }
+.adm-help li + li { margin-top: 6px; }
+
+/* Режим на телефоне: «Статусы» (компактно) / «Цены и статусы» */
+.adm-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 16px; padding: 4px; border-radius: 14px; background: var(--soft); }
+.adm-mode__btn { min-height: 44px; border: 0; border-radius: 10px; background: none; font-size: 15px; font-weight: 700; cursor: pointer; }
+.adm-mode__btn[aria-pressed="true"] { background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--line); }
+@media (max-width: 767px) {
+  .is-status .ac__fields, .is-status .ac__purpose, .is-status .ac__eyebrow, .is-status .ac__status > .field__label { display: none; }
+  .is-status .ac__top { align-items: center; padding: 12px 12px 0; border-bottom: 0; gap: 12px; }
+  .is-status .ac__thumb { width: 56px; border-radius: 8px; }
+  .is-status .ac__title { font-size: 16px; }
+  .is-status .ac__status { padding: 10px 12px 12px; }
+  .is-status .ac .seg { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .is-status .ac .seg__btn--confirm { grid-column: auto; }
+  .is-status .ac .seg__btn { padding: 4px; font-size: 13px; hyphens: manual; }
+  .is-status .adm-grid { gap: 10px; }
+}
+@media (min-width: 768px) { .adm-mode { display: none; } }
+
+/* Тестовая заявка */
+.adm-test { display: grid; gap: 6px; }
+.adm-test .btn { min-height: 48px; gap: 8px; }
+.adm-test .ui { width: 20px; height: 20px; }
+
+/* Несохранённые изменения */
+.adm-dirty { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 1240px; margin: 0 auto 8px; padding: 8px 12px; border-radius: 10px; background: #fff3d1; color: #5c3d00; font-size: 14px; font-weight: 700; }
+.adm-dirty .ui { width: 18px; height: 18px; flex: none; }
+
 .ac.is-changed { box-shadow: var(--shadow), 0 0 0 2px var(--accent); }
 
 .adm-contact { margin-top: 16px; padding: 18px; display: grid; gap: 16px; }
@@ -85,8 +125,9 @@
   .adm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .adm-head h1 { font-size: 32px; }
   .adm { padding-bottom: 48px; }
-  .adm-bar { position: static; margin-top: 20px; padding: 0; background: none; box-shadow: none; }
+  .adm-bar { position: sticky; margin-top: 20px; padding: 12px 0; background: var(--bg); box-shadow: none; }
+  .adm-dirty { justify-content: flex-start; margin: 0 0 10px; }
   .adm-bar__in { display: flex; justify-content: flex-end; }
   .adm-bar .btn { white-space: nowrap; padding: 0 22px; }
-  .toast { left: auto; right: 24px; bottom: 24px; max-width: 460px; }
+  .toast { left: auto; right: 24px; top: calc(var(--sticky-h, 100px) + 16px); bottom: auto; max-width: 460px; }
 }
