@@ -1,46 +1,35 @@
 # Сайты для аренды спецтехники
 
-Один шаблон на всех: одностраничник + калькулятор-заявка в WhatsApp. У каждой компании свой `config.json`.
+Один шаблон на всех: одностраничник с калькулятором, заявка уходит в WhatsApp (Telegram — если нет WhatsApp, иначе звонок).
+Нужен только Node.js ≥ 22, `npm install` не нужен. Публикация — GitHub Pages из `/docs` ветки `main`.
 
-## Добавить компанию
-1. Создать папку `companies/<slug>/` (латиница, без «_» в начале — папки на «_» не публикуются).
-2. Положить `config.json` по образцу `companies/_test/config.json` и фото в `img/`.
-3. Необязательные поля: `tagline`, `hero_photo`, `hero_title` (слова в `*звёздочках*` — акцентным цветом), `city_in` («в Караганде»),
-   `delivery_time_text`, `park_note`, `features` (`[{icon, title, text}]`, icon: park, clock, operator, calendar, shield, truck),
-   `telegram` (username без @), `channel` (`whatsapp` — по умолчанию, или `telegram`),
-   `machines[].status` (`free` / `busy` / `confirm`), `machines[].kind` (excavator, crane, dump_truck, loader — фронтальный погрузчик, mini_loader — мини-погрузчик, manipulator,
-   aerial_platform, bulldozer, roller, tractor, other). Нет своего фото → общее из `assets/stock/<kind>.jpg` с подписью «Фото для примера», нет и его → иконка.
-4. Заполнять только то, что известно о компании. Пустое поле → блок на странице не выводится. Ничего не придумывать.
-5. `"demo": true` — плашка «Демо-концепт…» + noindex. Для оплатившего клиента — `"demo": false`.
-
-Тестовые папки (на «_», в `docs/` не публикуются):
-- `_sample` — витрина шаблона, данные вымышленные;
-- `_test` — проверки граничных случаев (без цены, занятая позиция, без фото и т. п.).
-
-## Собрать
+## Новая компания за 10 минут
 ```
-node build.js           # публикация: компании без «_» → docs/<slug>/
-node build.js --test    # предпросмотр: все, включая «_» → preview/<slug>/
+node build.js new stroy-tehnika     # companies/stroy-tehnika/config.json (все поля пустые) + img/
 ```
-Контакты тестовых папок берутся из переменных окружения: `TEST_WA` (WhatsApp), `TEST_TG` (Telegram username), `TEST_CHANNEL` (`whatsapp` / `telegram` — главный канал)
-(PowerShell: `$env:TEST_WA="77011234567"; node build.js --test`).
+1. Заполнить `config.json` — что где искать (2ГИС, Instagram, сайт): **КАРТОЧКА_КОМПАНИИ.md**. Нет данных — поле пустое, блока на странице не будет. Ничего не придумывать.
+2. Свои фото — в `companies/<slug>/img/` (до 300 КБ, до 1600 px). Нет фото — подставится общее из `assets/stock/<kind>.jpg` с подписью «Фото для примера» (источники — `assets/stock/SOURCES.md`).
+3. `node build.js check` — таблица: ошибки, предупреждения, позиции, фото, канал. Ошибки — исправить.
+4. `node build.js --only stroy-tehnika` — собрать одну компанию в `docs/` (остальные не трогаются); `node build.js` — все.
+5. `node tests/screens.js stroy-tehnika` — проверки «да/НЕТ» и скриншоты в `checks/`.
+6. Закоммитить, открыть `https://<user>.github.io/<repo>/stroy-tehnika/` на телефоне. Панель владельца — `…/stroy-tehnika/admin/`.
 
-## Панель владельца (демо)
-Сборка кладёт рядом со страницей компании `admin/index.html` (ссылки на неё с сайта нет).
-Цены, минимальная смена, статус позиций и канал заявок сохраняются в localStorage браузера —
-видны на сайте только на этом же устройстве. Для показа на созвоне; общая база и пароль — после первой оплаты.
+`"demo": true` — плашка «Демо-концепт…» и noindex на всех страницах. В `site.json` — адрес публикации (`base_url`) для превью ссылки в мессенджерах.
 
-## Публикация
-GitHub Pages из папки `/docs` ветки `main`. `docs/` коммитится в репозиторий. `preview/` не коммитится.
+## Тестовые папки (на «_», в `docs/` не попадают)
+- `companies/_sample` — витрина шаблона с вымышленными данными; `companies/_test` — граничные случаи.
+- `tests/fixtures/_*` — крайние случаи для автотестов: минимум данных, всё занято, только телефон, длинные тексты, диапазоны цен, логотипы и т. д.
 
-## Проверить
+Контакты в них — только плейсхолдеры `"$TEST_WA"`, `"$TEST_TG"`, `"$TEST_PHONE"`, значения берутся из переменных окружения:
 ```
-node tests/price.test.js           # формула цены, склонения, текст заявки
-node tests/screens.js <slug>       # скриншоты 360/1280 в checks/ + проверки «да/нет»
-python -m http.server -d preview   # открыть http://localhost:8000/<slug>/
+TEST_WA=77011234567 node build.js --test          # PowerShell: $env:TEST_WA="77011234567"; node build.js --test
 ```
-`tests/screens.js` берёт `preview/<slug>/` (или `docs/<slug>/`), запускает установленный Edge или Chrome без окна
-и пишет `checks/<slug>-360-full.png`, `-360-selected.png`, `-1280.png`, `-1280-selected.png`.
-Путь к браузеру можно задать переменной `BROWSER`.
+Сборка `--test` кладёт всё в `preview/` (не коммитится). Свой номер в файлы не записывать.
 
-Нужен Node.js ≥ 22 (только встроенные модули, `npm install` не нужен).
+## Проверки
+```
+node tests/run-all.js [--quick] [slug…]   # всё сразу: price + screens по всем тестовым страницам
+node tests/price.test.js                  # цены, склонения, текст заявки, ссылки
+node tests/xss.js                         # вредные строки в конфиге, панели и форме; CSP
+```
+`run-all` без переменных подставит вымышленные номера. Результаты и скриншоты — в `checks/` (не коммитится).
