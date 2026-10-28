@@ -78,16 +78,22 @@
   .is-status .ac__thumb { width: 56px; border-radius: 8px; }
   .is-status .ac__title { font-size: 16px; }
   .is-status .ac__status { padding: 10px 12px 12px; }
-  .is-status .ac .seg { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .is-status .ac .seg { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 6px; }
   .is-status .ac .seg__btn--confirm { grid-column: auto; }
-  .is-status .ac .seg__btn { padding: 4px; font-size: 13px; hyphens: manual; }
+  .is-status .ac .seg__btn { padding: 4px; font-size: 13px; hyphens: none; overflow-wrap: normal; word-break: normal; }
   .is-status .adm-grid { gap: 10px; }
 }
 @media (min-width: 768px) { .adm-mode { display: none; } }
+/* «Требует подтверждения» — полная подпись; «Уточнить» — только в компактном режиме на экранах уже 360px */
+.st-short { display: none; }
+@media (max-width: 359px) {
+  .is-status .st-full { display: none; }
+  .is-status .st-short { display: inline; }
+}
 
 /* Тестовая заявка */
 .adm-test { display: grid; gap: 6px; }
-.adm-test .btn { min-height: 48px; gap: 8px; }
+.adm-test .btn { min-height: 48px; gap: 8px; white-space: normal; text-align: center; }
 .adm-test .ui { width: 20px; height: 20px; }
 
 /* Несохранённые изменения */
@@ -96,7 +102,7 @@
 
 .ac.is-changed { box-shadow: var(--shadow), 0 0 0 2px var(--accent); }
 
-.adm-contact { margin-top: 16px; padding: 18px; display: grid; gap: 16px; }
+.adm-contact { margin-top: 16px; padding: 18px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .adm-contact .eyebrow { margin: 0; }
 .adm-contact .field { display: block; }
 

@@ -93,7 +93,7 @@ svg * { vector-effect: non-scaling-stroke; }
 
 /* ---------- Карточки и поля ---------- */
 .card { background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); }
-.row { display: grid; gap: 18px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .field { min-width: 0; }
 .field__label { display: block; margin-bottom: 8px; font-size: 15px; font-weight: 700; }
 .opt { font-weight: 400; font-size: 13px; color: var(--muted); }
@@ -138,5 +138,5 @@ input[type="date"]::-webkit-date-and-time-value, input[type="time"]::-webkit-dat
 }
 
 @media (min-width: 768px) {
-  .row { grid-template-columns: 1fr 1fr; align-items: start; }
+  .row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 }

@@ -241,6 +241,15 @@ async function main() {
     if (await js("!document.querySelector('[data-field=\"consent\"]').hidden")) await tap('#consent');
   };
 
+  // Доступна ровно одна позиция — она выбрана сразу при загрузке.
+  if (selectable.length === 1) {
+    const auto = await js(`(() => { const c = document.querySelector('.mc[data-id="${selectable[0]}"]'); const t = document.getElementById('sum-total');
+      return { selected: c.classList.contains('is-selected'), btn: c.querySelector('.mc__btn-text').textContent, select: document.getElementById('machine').value,
+        total: t ? t.textContent.trim() : '', priced: JSON.parse(document.getElementById('site-data').textContent).machines.some((m) => m.id === '${selectable[0]}' && m.rate_from != null) }; })()`);
+    check('одна доступная позиция выбрана сразу: «Техника выбрана», список заполнен, итог посчитан (если есть цена)',
+      auto.selected && auto.btn === 'Техника выбрана' && auto.select === selectable[0] && (!auto.priced || /\d/.test(auto.total)), JSON.stringify(auto));
+  }
+
   // ---------- 360: шапка, первый экран, каталог ----------
   const demo = await js("({ bar: document.querySelector('.demo-bar')?.getBoundingClientRect().height ?? null, robots: document.querySelector('meta[name=robots]')?.content ?? null })");
   if (demo.bar !== null) {
@@ -451,7 +460,8 @@ async function main() {
       await sleep(800);
       for (let i = 0; i < 40; i++) { await sleep(100); if (await js('document.readyState') === 'complete') break; }
       const cleared = await js("({ machine: document.getElementById('machine').value, address: document.getElementById('address').value })");
-      check('«Начать новую заявку» очищает форму', cleared.machine === '' && cleared.address === '', JSON.stringify(cleared));
+      // Единственная доступная позиция после очистки снова выбирается сама.
+      check('«Начать новую заявку» очищает форму', cleared.machine === (selectable.length === 1 ? selectable[0] : '') && cleared.address === '', JSON.stringify(cleared));
       if (F.channel === 'telegram') {
         check('Telegram: подсказка «Заявка скопирована…» и «Поделиться через Telegram»', hintShown && /^https:\/\/t\.me\/share\/url\?/.test(sh1.share), sh1.share.slice(0, 50));
       }
@@ -619,8 +629,8 @@ async function main() {
     await tap('#privacy-btn');
     const pv = await js(`(() => { const d = document.getElementById('privacy'); return { open: d.open, text: d.textContent.split(String.fromCharCode(10)).map((x) => x.trim()).join(' '),
       name: document.querySelector('.brand__name').textContent.trim(), focus: document.activeElement.id }; })()`);
-    check('«Как используются данные» → окно: не сохраняются на сайте, напрямую в мессенджер компании, обрабатывает компания {name}',
-      pv.open && /не сохраняет/.test(pv.text) && /напрямую компании/.test(pv.text) && pv.text.includes(`Обрабатывает данные компания ${pv.name}`) && pv.focus === 'privacy-close', pv.text.slice(0, 90));
+    check('«Как используются данные» → окно: не сохраняются на сайте, напрямую в мессенджер компании, обрабатывает компания «{name}»',
+      pv.open && /не сохраняет/.test(pv.text) && /напрямую компании/.test(pv.text) && pv.text.includes(`Обрабатывает данные компания ${/[«»"]/.test(pv.name) ? pv.name : `«${pv.name}»`}`) && pv.focus === 'privacy-close', pv.text.slice(0, 90));
     shots.push(await shot('360-privacy', false));
     await key('Escape');
     const pc = await js("({ open: document.getElementById('privacy').open, focus: document.activeElement.id })");
@@ -652,6 +662,36 @@ async function main() {
     mode.toggle && mode.def === 'true' && !mode.rate && mode.thumb && mode.oneRow, JSON.stringify(mode));
   check('панель: свёрнутая справка «Как пользоваться», 5–6 строк', mode.help === 'Как пользоваться' && mode.helpLines >= 5 && mode.helpLines <= 6, `${mode.helpLines} строк`);
   shots.push(await shot('admin-360', true));
+  const EDGE = `(() => { const bad = []; const lines = [];
+    document.querySelectorAll('#adm-form .input, #adm-form .seg, #adm-form .btn, #adm-form .seg__btn').forEach((e) => {
+      if (!e.getClientRects().length) return;
+      const box = e.closest('.ac, .adm-contact, .card'); if (!box) return;
+      const r = e.getBoundingClientRect().right, lim = box.getBoundingClientRect().right - 12;
+      if (r > lim + 0.5) bad.push((e.id || e.name || e.className.split(' ')[0]) + ' ' + Math.round(r) + '>' + Math.round(lim));
+    });
+    document.querySelectorAll('.ac .seg__btn--confirm').forEach((b) => {
+      const span = [...b.children].find((x) => x.getClientRects().length) || b;
+      const n = Math.round(span.getBoundingClientRect().height / parseFloat(getComputedStyle(b).lineHeight));
+      lines.push({ text: span.textContent, n, shy: b.textContent.includes(String.fromCharCode(173)), over: b.scrollWidth > b.clientWidth + 1, aria: b.getAttribute('aria-label') });
+    });
+    return { bad, lines }; })()`;
+  const edgeIssues = [];
+  const confirmIssues = [];
+  for (const w of [320, 360, 390]) {
+    await open(w, 800, true, adminUrl);
+    for (const mode of ['status', 'full']) {
+      await tap(`[data-mode="${mode}"]`);
+      const e = await js(EDGE);
+      if (e.bad.length) edgeIssues.push(`${w} ${mode}: ${e.bad.slice(0, 3).join(', ')}`);
+      if (mode === 'status' && w <= 360) {
+        for (const l of e.lines) if (l.shy || l.n > 2 || l.over || l.aria !== 'Требует подтверждения') confirmIssues.push(`${w}: ${JSON.stringify(l)}`);
+      }
+    }
+  }
+  check('панель 320/360/390: правый край каждого поля и кнопки ≤ край карточки − 12px (оба режима)', !edgeIssues.length, edgeIssues.join('; ') || 'все в пределах');
+  check('«Требует подтверждения» в режиме «Статусы»: без переноса по слогам, ≤ 2 строк, не обрезана на 320/360 (на 320 — «Уточнить», aria-label полный)',
+    !confirmIssues.length, confirmIssues.slice(0, 3).join('; ') || 'ок');
+  await open(360, 740, true, adminUrl);
   await tap('[data-mode="full"]');
   const full = await js(`({ rate: Boolean(document.querySelector('.ac [name="rate"]').getClientRects().length), pressed: document.querySelector('[data-mode="full"]').getAttribute('aria-pressed') })`);
   check('панель 360: «Цены и статусы» показывает поля цены', full.rate && full.pressed === 'true', JSON.stringify(full));

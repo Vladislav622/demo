@@ -799,6 +799,8 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug)), s
   const hasFree = machines.some((m) => m.status !== 'busy');
 
   const pal = palette(config.colors || {});
+  // Название внутри фразы — в «ёлочках»; если кавычки уже есть («ТОО «Стройтех»»), не добавляем.
+  const nameQuoted = /[«»"„“]/.test(name) ? name : `«${name}»`;
   const pageTitle = `Аренда спецтехники — ${name}${city ? `, ${city}` : ''}`;
   const pageDescription = {
     whatsapp: 'Выберите технику, узнайте предварительную стоимость и отправьте заявку в WhatsApp',
@@ -923,6 +925,7 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug)), s
     is_phone: channel === 'phone',
     consent_attr: channel === 'phone' ? ' hidden' : '',
     messenger: channel === 'telegram' ? 'Telegram' : 'WhatsApp',
+    name_q: nameQuoted,
     sheet_class: `sheet--${channel === 'telegram' ? 'telegram' : 'whatsapp'}`,
     sheet_title: channel === 'telegram' ? 'Заявка для Telegram' : 'Заявка для WhatsApp',
     open_label: channel === 'telegram' ? 'Открыть Telegram' : 'Открыть WhatsApp',
@@ -1065,7 +1068,7 @@ function adminVars(config, site) {
       `          <div class="seg" role="group" aria-labelledby="st-${esc(m.id)}">`,
       '            <button type="button" class="seg__btn seg__btn--free" data-status="free" aria-pressed="false">Свободна</button>',
       '            <button type="button" class="seg__btn seg__btn--busy" data-status="busy" aria-pressed="false">Занята</button>',
-      '            <button type="button" class="seg__btn seg__btn--confirm" data-status="confirm" aria-pressed="false">Требует подтвер&shy;ждения</button>',
+      '            <button type="button" class="seg__btn seg__btn--confirm" data-status="confirm" aria-pressed="false" aria-label="Требует подтверждения"><span class="st-full">Требует подтверждения</span><span class="st-short" aria-hidden="true">Уточнить</span></button>',
       '          </div>',
       '        </div>',
       '      </article>',

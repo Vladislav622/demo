@@ -677,5 +677,8 @@
   renderAllBusy(data);
   renderUnits();
   restoreDraft();
+  // Доступна ровно одна позиция — выбираем её сразу: выбирать больше не из чего.
+  var selectable = data.machines.filter(C.isSelectable);
+  if (!state.machine && selectable.length === 1) select(selectable[0].id, false);
   draftReady = true;
 })();
