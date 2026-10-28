@@ -374,12 +374,23 @@
     return $('[data-field="' + name + '"]');
   }
 
+  // Поля и кнопки поля, к которым относится ошибка: для aria-invalid и aria-describedby.
+  function controlsOf(f) {
+    return $$('input:not([type="hidden"]), select, textarea, .chip', f);
+  }
+
   function showError(name, text) {
     var f = fieldEl(name);
     f.classList.add('is-invalid');
     var err = $('.err', f);
     err.textContent = text;
     err.hidden = false;
+    controlsOf(f).forEach(function (c) {
+      c.setAttribute('aria-invalid', 'true');
+      var ids = (c.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
+      if (ids.indexOf(err.id) < 0) ids.push(err.id);
+      c.setAttribute('aria-describedby', ids.join(' '));
+    });
   }
 
   function clearError(name) {
@@ -388,6 +399,12 @@
     f.classList.remove('is-invalid');
     var err = $('.err', f);
     if (err) err.hidden = true;
+    controlsOf(f).forEach(function (c) {
+      c.removeAttribute('aria-invalid');
+      if (!err) return;
+      var ids = (c.getAttribute('aria-describedby') || '').split(' ').filter(function (x) { return x && x !== err.id; });
+      if (ids.length) c.setAttribute('aria-describedby', ids.join(' ')); else c.removeAttribute('aria-describedby');
+    });
   }
 
   $('#address').addEventListener('input', function () { clearError('address'); });

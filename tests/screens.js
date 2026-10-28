@@ -16,6 +16,77 @@ const { serve, launch, sleep, fail } = require('./browser.js');
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'checks');
 
+// ---------- Проверки доступности (выполняются на странице; передаются через toString) ----------
+
+// Контраст текста ≥ 4,5:1 по вычисленным цветам: фон — с учётом полупрозрачных слоёв, текст — с учётом opacity.
+function contrastProbe() {
+  const parse = (c) => {
+    let m = c.match(/^rgba?\(([^)]+)\)/);
+    if (m) { const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; }
+    m = c.match(/^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)/);
+    if (m) return [m[1] * 255, m[2] * 255, m[3] * 255, m[4] != null ? Number(m[4]) : 1];
+    return [0, 0, 0, 0];
+  };
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+  const blend = (top, bottom) => { const a = top[3]; return [0, 1, 2].map((i) => top[i] * a + bottom[i] * (1 - a)).concat(1); };
+  const bgOf = (el) => {
+    const layers = [];
+    for (let e = el; e; e = e.parentElement) {
+      const c = parse(getComputedStyle(e).backgroundColor);
+      if (c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
+    }
+    let bg = [255, 255, 255, 1];
+    for (let i = layers.length - 1; i >= 0; i--) bg = blend(layers[i], bg);
+    return bg;
+  };
+  const opacityOf = (el) => { let o = 1; for (let e = el; e; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity); return o; };
+  const ratio = (a, b) => { const x = lum(a); const y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const bad = [];
+  let n = 0;
+  const seen = new Set();
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const t = walker.currentNode;
+    if (!t.textContent.trim()) continue;
+    const el = t.parentElement;
+    if (seen.has(el)) continue;
+    seen.add(el);
+    if (!el.getClientRects().length || el.closest('[hidden], [aria-hidden="true"], script, style, option, .sheet__area')) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    const fg = parse(cs.color);
+    const bg = bgOf(el);
+    const r = ratio(blend([fg[0], fg[1], fg[2], fg[3] * opacityOf(el)], bg), bg);
+    n++;
+    if (r < 4.5) bad.push(`«${t.textContent.trim().slice(0, 22)}» ${r.toFixed(2)}`);
+  }
+  document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach((i) => {
+    if (!i.getClientRects().length) return;
+    const bg = bgOf(i);
+    const r = ratio(blend(parse(getComputedStyle(i, '::placeholder').color), bg), bg);
+    n++;
+    if (r < 4.5) bad.push(`плейсхолдер #${i.id} ${r.toFixed(2)}`);
+  });
+  return { n, total: bad.length, bad: bad.slice(0, 8) };
+}
+
+// Структура: язык, ориентиры, один h1, заголовки без пропусков уровней, подписи у полей, подписи карточек.
+function structureProbe() {
+  const levels = [...document.querySelectorAll('h1, h2, h3, h4')].filter((e) => !e.closest('[hidden]')).map((e) => Number(e.tagName[1]));
+  let skip = '';
+  for (let i = 1; i < levels.length; i++) if (levels[i] > levels[i - 1] + 1) skip = `h${levels[i - 1]} → h${levels[i]}`;
+  const unlabeled = [...document.querySelectorAll('input:not([type="hidden"]), select, textarea')]
+    .filter((e) => e.id !== 'sheet-area' && !(e.labels && e.labels.length) && !e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby'))
+    .map((e) => e.id || e.name);
+  return {
+    lang: document.documentElement.lang, h1: levels.filter((x) => x === 1).length, skip,
+    landmarks: ['header', 'main', 'footer'].filter((t) => !document.querySelector(t)),
+    unlabeled,
+    cards: [...document.querySelectorAll('.mc__btn:not([disabled])')].every((b) => /^Выбрать: .+, (свободна|требует подтверждения)$/.test(b.getAttribute('aria-label') || '')),
+    live: Boolean(document.querySelector('#sum-total[aria-live]') || !document.querySelector('#sum-total')) && Boolean(document.querySelector('#park-counter[aria-live]') || !document.querySelector('#park-counter')),
+  };
+}
+
 function readConfig(slug) {
   for (const dir of ['companies', path.join('tests', 'fixtures')]) {
     const f = path.join(ROOT, dir, slug, 'config.json');
@@ -97,9 +168,13 @@ async function main() {
   const type = async (sel, text) => { await tap(sel); await b.send('Input.insertText', { text }); };
   const setValue = (sel, value) => js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); e.value = ${JSON.stringify(value)};
     e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-  const KEYS = { Escape: 27, Tab: 9, Enter: 13, ' ': 32 };
+  const KEYS = { Escape: 27, Tab: 9, Enter: 13, ' ': 32, ArrowDown: 40 };
   const key = async (k, mods = 0) => {
-    for (const t of ['keyDown', 'keyUp']) await b.send('Input.dispatchKeyEvent', { type: t, key: k, code: k === ' ' ? 'Space' : k, windowsVirtualKeyCode: KEYS[k], modifiers: mods });
+    // Enter и пробел нажимают кнопку только вместе с текстом символа — как настоящая клавиатура.
+    const text = { Enter: '\r', ' ': ' ' }[k];
+    for (const t of ['keyDown', 'keyUp']) {
+      await b.send('Input.dispatchKeyEvent', { type: t === 'keyDown' && text ? 'keyDown' : t, key: k, code: k === ' ' ? 'Space' : k, windowsVirtualKeyCode: KEYS[k], modifiers: mods, ...(t === 'keyDown' && text ? { text } : {}) });
+    }
     await sleep(120);
   };
 
@@ -162,6 +237,15 @@ async function main() {
   check('превью и значки: title, description, og:title, ru_RU, theme-color, favicon, apple-touch-icon 180',
     /^Аренда спецтехники — /.test(meta.title) && meta.desc && meta.og === meta.title && meta.locale === 'ru_RU' && /^#[0-9a-f]{6}$/.test(meta.theme) && meta.icon > 0 && meta.touch === 180,
     `«${meta.title}», theme ${meta.theme}, значок ${meta.icon}px, touch ${meta.touch}px`);
+  const st = await js(`(${structureProbe})()`);
+  check('доступность: lang=ru, header/main/footer, один h1, заголовки без пропусков, у полей есть подписи',
+    st.lang === 'ru' && !st.landmarks.length && st.h1 === 1 && !st.skip && !st.unlabeled.length,
+    `h1: ${st.h1}${st.skip ? `, пропуск ${st.skip}` : ''}${st.landmarks.length ? `, нет ${st.landmarks}` : ''}${st.unlabeled.length ? `, без подписи: ${st.unlabeled}` : ''}`);
+  check('карточки — кнопки с понятной подписью; сумма и счётчик ленты озвучиваются (aria-live)', st.cards && st.live, '');
+  const c360 = await js(`(${contrastProbe})()`);
+  check('контраст текста ≥ 4,5:1 (360, страница)', c360.total === 0, `проверено ${c360.n}${c360.total ? `; ниже нормы: ${c360.bad.join(', ')}` : ''}`);
+  const motion = await js("({ scroll: getComputedStyle(document.documentElement).scrollBehavior, anim: getComputedStyle(document.querySelector('.bar')).animationName })");
+  check('prefers-reduced-motion: без плавной прокрутки и анимаций', motion.scroll === 'auto' && motion.anim === 'none', JSON.stringify(motion));
   const hero = await js(`(() => { const t = document.querySelector('.hero__title'); const lh = parseFloat(getComputedStyle(t).lineHeight);
     const btns = [...document.querySelectorAll('.hero__actions .btn')].map((e) => e.getBoundingClientRect());
     return { lines: Math.round(t.getBoundingClientRect().height / lh), size: getComputedStyle(t).fontSize,
@@ -272,6 +356,8 @@ async function main() {
       await tap('#submit');
       const firstErr = await js("({ f: document.querySelector('.field.is-invalid')?.dataset.field, msg: document.querySelector('.field.is-invalid .err')?.textContent })");
       check('пустая отправка: подсвечено первое незаполненное поле', firstErr.f === 'address', `${firstErr.f}: ${firstErr.msg}`);
+      const aria = await js("({ inv: document.getElementById('address').getAttribute('aria-invalid'), desc: document.getElementById('address').getAttribute('aria-describedby'), focus: document.activeElement.id })");
+      check('ошибка связана с полем: aria-invalid, aria-describedby, фокус на поле', aria.inv === 'true' && /err-address/.test(aria.desc) && aria.focus === 'address', JSON.stringify(aria));
 
       // Дата: три чипа в одну строку; «Другая дата» — поле на всю ширину колонки.
       const dates = await js(`(() => { const chips = [...document.querySelectorAll('[data-date]')].map((c) => c.getBoundingClientRect());
@@ -403,12 +489,50 @@ async function main() {
     await sleep(300);
     const sh2 = await js(SHEET);
     check('1280: окно заявки по центру, ширина 480px', sh2.open && sh2.w === 480 && Math.abs(sh2.left - (sh2.vw - 480) / 2) <= 1, `слева ${sh2.left}`);
+    const cSheet = await js(`(${contrastProbe})()`);
+    check('контраст текста ≥ 4,5:1 (1280, расчёт заполнен, окно заявки открыто)', cSheet.total === 0, `проверено ${cSheet.n}${cSheet.total ? `; ниже нормы: ${cSheet.bad.join(', ')}` : ''}`);
     shots.push(await shot('1280-sheet', false));
     for (const t of ['mousePressed', 'mouseReleased']) await b.send('Input.dispatchMouseEvent', { type: t, x: 20, y: 400, button: 'left', clickCount: 1 });
     await sleep(200);
     check('1280: тап по фону закрывает окно', await js("document.getElementById('sheet').hidden"), '');
   }
   check('кнопки, чипы и поля ≥ 44px (1280)', (await js(SMALL)).length === 0, '');
+
+  // ---------- Только клавиатура: каталог → расчёт → окно → отправка ----------
+  if (selectable.length && F.channel !== 'phone') {
+    await open(1280, 800, false);
+    const focus = (sel) => js(`document.querySelector(${JSON.stringify(sel)}).focus()`);
+    await focus(`${card(firstFree)} .mc__btn`);
+    await key('Enter');
+    const kSel = (await js(SELECTED)).cards[0] === firstFree;
+    await focus('#address');
+    await b.send('Input.insertText', { text: 'Тестовый адрес, 5' });
+    await key('Tab');
+    const ring = await js("({ el: document.activeElement.dataset.date || document.activeElement.id, visible: document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none' })");
+    await key('Tab');
+    await key(' ');
+    const kDate = await js("document.querySelector('[data-date=\"tomorrow\"]').getAttribute('aria-pressed') === 'true'");
+    if (F.zones) {
+      await focus('#zone');
+      await key('ArrowDown');
+      if (!(await js("document.getElementById('zone').value"))) await setValue('#zone', '0');
+    }
+    await focus('#consent');
+    await key(' ');
+    const kConsent = await js("document.getElementById('consent').checked");
+    await focus('.summary .js-submit');
+    await key('Enter');
+    await sleep(300);
+    const kSheet = await js("!document.getElementById('sheet').hidden");
+    let hops = 0;
+    while (hops < 8 && (await js("document.activeElement.id")) !== 'sheet-open') { await key('Tab'); hops++; }
+    const before = navLinks.length;
+    await key('Enter');
+    await sleep(1200);
+    check('клавиатура: выбор карточки Enter, дата Space, согласие Space, окно Enter, «Открыть» Enter', kSel && kDate && kConsent && kSheet && navLinks.length > before,
+      JSON.stringify({ kSel, kDate, kConsent, kSheet, tabs: hops, sent: navLinks.length > before }));
+    check('клавиатура: видимая обводка фокуса (:focus-visible)', ring.visible, `на ${ring.el}`);
+  }
 
   // ---------- Ширины 320…1920: нет горизонтального скролла, ничего не обрезано, на 1920 контент не растянут ----------
   const CUT = `(() => { const iw = document.documentElement.clientWidth;
@@ -459,6 +583,11 @@ async function main() {
     warn: document.querySelector('.adm-warn').textContent.trim(), sw: document.documentElement.scrollWidth, iw: innerWidth })`);
   check('панель: плашка демо, noindex, полоса «Демо-режим панели…»', adm.demo && adm.robots === 'noindex, nofollow' && /^Демо-режим панели/.test(adm.warn), '');
   check('панель 360: нет горизонтального скролла', adm.sw === adm.iw, `${adm.sw} = ${adm.iw}`);
+  const ast = await js(`(${structureProbe})()`);
+  check('панель: lang, header/main/footer, один h1, заголовки без пропусков, у полей подписи', ast.lang === 'ru' && !ast.landmarks.length && ast.h1 === 1 && !ast.skip && !ast.unlabeled.length,
+    `${ast.skip}${ast.landmarks.length ? ` нет ${ast.landmarks}` : ''}${ast.unlabeled.length ? ` без подписи: ${ast.unlabeled}` : ''}`);
+  const cAdm = await js(`(${contrastProbe})()`);
+  check('контраст текста ≥ 4,5:1 (панель)', cAdm.total === 0, `проверено ${cAdm.n}${cAdm.total ? `; ниже нормы: ${cAdm.bad.join(', ')}` : ''}`);
   check('панель 360: кнопки и поля ≥ 44px', (await js(SMALL)).length === 0, JSON.stringify(await js(SMALL)));
   shots.push(await shot('admin-360', true));
   await open(1280, 800, false, adminUrl);

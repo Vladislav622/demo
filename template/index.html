@@ -107,13 +107,13 @@
 {{{machine_options}}}
               </select>
             </div>
-            <p class="err" hidden></p>
+            <p class="err" id="err-machine" hidden></p>
           </div>
 
           <div class="field" data-field="address">
             <label class="field__label" for="address">Адрес объекта</label>
             <div class="ctl">{{{icon_pin_ctl}}}<input class="input" id="address" name="address" type="text" maxlength="200" autocomplete="street-address" placeholder="Улица, дом или ориентир"></div>
-            <p class="err" hidden></p>
+            <p class="err" id="err-address" hidden></p>
           </div>
 
           <div class="row">
@@ -126,7 +126,7 @@
               </div>
               <div class="ctl date-other" id="date-other" hidden>{{{icon_calendar_ctl}}}<input class="input" id="date" name="date" type="date" aria-label="Дата начала работ"></div>
               <p class="hint" id="date-hint" hidden>Уже вечер — менеджер уточнит, успеют ли подать технику сегодня</p>
-              <p class="err" hidden></p>
+              <p class="err" id="err-date" hidden></p>
             </div>
             <div class="field" data-field="time">
               <label class="field__label" for="time">Желаемое время подачи <span class="opt">необязательно</span></label>
@@ -139,12 +139,12 @@
               <span class="field__label" id="units-label">Количество часов</span>
               <div class="stepper" role="group" aria-labelledby="units-label">
                 <button type="button" class="stepper__btn" id="units-minus" aria-label="Меньше">−</button>
-                <output class="stepper__val" id="units-out" aria-live="polite">—</output>
+                <output class="stepper__val" id="units-out" aria-live="polite" aria-describedby="units-hint">—</output>
                 <button type="button" class="stepper__btn" id="units-plus" aria-label="Больше">+</button>
               </div>
               <div class="chips" id="units-chips"></div>
               <p class="hint" id="units-hint" hidden></p>
-              <p class="err" hidden></p>
+              <p class="err" id="err-units" hidden></p>
             </div>
 <!--if:has_zones-->            <div class="field" data-field="zone">
               <label class="field__label" for="zone">Зона доставки</label>
@@ -154,14 +154,14 @@
 {{{zone_options}}}
                 </select>
               </div>
-              <p class="err" hidden></p>
+              <p class="err" id="err-zone" hidden></p>
             </div>
 <!--/if:has_zones-->          </div>
 
           <div class="field" data-field="comment">
             <label class="field__label" for="comment">Комментарий</label>
-            <div class="ctl ctl--area">{{{icon_comment_ctl}}}<textarea class="input" id="comment" name="comment" rows="3" maxlength="500" placeholder="Например: нужен ковш, подъезд со двора"></textarea></div>
-            <p class="counter" id="comment-count">0 / 500</p>
+            <div class="ctl ctl--area">{{{icon_comment_ctl}}}<textarea class="input" id="comment" name="comment" aria-describedby="comment-count" rows="3" maxlength="500" placeholder="Например: нужен ковш, подъезд со двора"></textarea></div>
+            <p class="counter" id="comment-count" aria-live="polite">0 / 500</p>
           </div>
 
           <div class="row">
@@ -171,9 +171,9 @@
             </div>
             <div class="field" data-field="phone">
               <label class="field__label" for="client_phone">Телефон <span class="opt">необязательно</span></label>
-              <div class="ctl">{{{icon_phone_ctl}}}<input class="input" id="client_phone" name="client_phone" type="tel" maxlength="25" inputmode="tel" autocomplete="tel"></div>
-              <p class="hint">Необязательно — если удобнее, чтобы перезвонили</p>
-              <p class="err" hidden></p>
+              <div class="ctl">{{{icon_phone_ctl}}}<input class="input" id="client_phone" name="client_phone" aria-describedby="hint-phone" type="tel" maxlength="25" inputmode="tel" autocomplete="tel"></div>
+              <p class="hint" id="hint-phone">Необязательно — если удобнее, чтобы перезвонили</p>
+              <p class="err" id="err-phone" hidden></p>
             </div>
           </div>
 
@@ -182,7 +182,7 @@
               <input type="checkbox" id="consent" name="consent">
               <span>Согласен на обработку персональных данных для связи по заявке</span>
             </label>
-            <p class="err" hidden></p>
+            <p class="err" id="err-consent" hidden></p>
           </div>
         </form>
 
@@ -202,7 +202,7 @@
 <!--/if:has_zones-->          </dl>
           <div class="summary__total">
             <span>Итого</span>
-            <strong class="js-total" id="sum-total">—</strong>
+            <strong class="js-total" id="sum-total" aria-live="polite" aria-atomic="true">—</strong>
           </div>
           <p class="summary__pre" id="sum-pre" hidden>предварительно</p>
 <!--if:price_note-->          <p class="summary__note">{{price_note}}</p>
@@ -217,6 +217,7 @@
   <section class="section" id="about">
     <div class="wrap">
       <p class="eyebrow">О компании</p>
+      <h2>О компании {{name}}</h2>
       <p class="text">{{about}}</p>
     </div>
   </section>

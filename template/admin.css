@@ -5,7 +5,7 @@
 
 .adm-warn { background: #fff1e6; color: #6b2e0e; border-bottom: 1px solid #f3cfb3; font-size: 14px; line-height: 1.4; }
 .adm-warn .wrap { display: flex; align-items: flex-start; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
-.adm-warn .ui { width: 18px; height: 18px; margin-top: 1px; color: var(--accent); }
+.adm-warn .ui { width: 18px; height: 18px; margin-top: 1px; color: var(--accent-text); }
 .adm-warn--error { background: #fdecea; color: #7a1a12; border-color: #f5c2bc; }
 
 .adm { padding-top: 24px; padding-bottom: 120px; }
@@ -23,7 +23,7 @@
 .ac__thumb--icon { display: grid; place-items: center; color: var(--primary); }
 .ac__icon { width: 74%; height: auto; }
 .ac__text { min-width: 0; }
-.ac__eyebrow { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.ac__eyebrow { margin: 0 0 2px; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-text); }
 .ac__title { margin: 0; font-size: 18px; font-weight: 800; line-height: 1.2; }
 .ac__purpose { margin: 4px 0 0; font-size: 14px; line-height: 1.35; color: var(--muted); }
 .ac__fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 16px 16px 0; }
@@ -76,6 +76,9 @@
   padding: 14px 16px; border-radius: 12px; background: var(--primary); color: #fff; font-weight: 700;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .25); animation: up var(--t) both;
 }
+.adm-foot { padding: 0 0 140px; color: var(--muted); font-size: 13px; }
+.adm-foot p { margin: 0; }
+
 .toast a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-on-dark); }
 
 @media (min-width: 768px) {
