@@ -21,11 +21,12 @@ const STOCK_DIR = path.join(ROOT, 'assets', 'stock');
 const KNOWN_KEYS = [
   'demo', 'slug', 'name', 'tagline', 'logo', 'hero_photo', 'hero_title', 'city', 'city_in', 'address', 'schedule',
   'phone', 'whatsapp', 'telegram', 'channel', 'delivery_time_text', 'park_note', 'features', 'colors', 'about', 'reviews_summary', 'source_2gis', 'currency', 'price_note', 'machines', 'zones',
+  'og_title', 'og_description',
 ];
 const MACHINE_KEYS = ['id', 'title', 'kind', 'photo', 'purpose', 'rate_from', 'rate_to', 'unit', 'min_units', 'status', 'available'];
 const ZONE_KEYS = ['title', 'delivery_from', 'delivery_to'];
 const OPTIONAL_STRINGS = ['tagline', 'logo', 'hero_photo', 'hero_title', 'city', 'city_in', 'address', 'schedule', 'phone', 'whatsapp',
-  'telegram', 'channel', 'delivery_time_text', 'park_note', 'about', 'source_2gis', 'price_note'];
+  'telegram', 'channel', 'delivery_time_text', 'park_note', 'about', 'source_2gis', 'price_note', 'og_title', 'og_description'];
 
 const KINDS = ['excavator', 'crane', 'dump_truck', 'loader', 'mini_loader', 'manipulator', 'aerial_platform', 'bulldozer', 'roller', 'tractor', 'other'];
 const PHOTO_WARN_BYTES = 300 * 1024;
@@ -825,18 +826,21 @@ function pageVars(config, dir = path.join(COMPANIES_DIR, String(config.slug)), s
   // Превью ссылки (WhatsApp, Telegram): абсолютные адреса из site.json; без base_url — только текстовые теги.
   const pageUrl = site.base_url ? `${site.base_url}/${config.slug}/` : '';
   const ogImage = pageUrl && hero.type !== 'icon' ? `${pageUrl}${hero.src}` : '';
+  // Превью ссылки: свои заголовок и описание из конфига, иначе — как у страницы.
+  const ogTitle = str(config.og_title) || pageTitle;
+  const ogDescription = str(config.og_description) || pageDescription;
   const headMeta = [
     `<meta property="og:type" content="website">`,
     `<meta property="og:locale" content="ru_RU">`,
     `<meta property="og:site_name" content="${esc(name)}">`,
-    `<meta property="og:title" content="${esc(pageTitle)}">`,
-    `<meta property="og:description" content="${esc(pageDescription)}">`,
+    `<meta property="og:title" content="${esc(ogTitle)}">`,
+    `<meta property="og:description" content="${esc(ogDescription)}">`,
     pageUrl ? `<meta property="og:url" content="${esc(pageUrl)}">` : null,
     ogImage ? `<meta property="og:image" content="${esc(ogImage)}">` : null,
     ogImage ? `<meta property="og:image:width" content="${hero.w}">\n<meta property="og:image:height" content="${hero.h}">` : null,
     `<meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">`,
-    `<meta name="twitter:title" content="${esc(pageTitle)}">`,
-    `<meta name="twitter:description" content="${esc(pageDescription)}">`,
+    `<meta name="twitter:title" content="${esc(ogTitle)}">`,
+    `<meta name="twitter:description" content="${esc(ogDescription)}">`,
     ogImage ? `<meta name="twitter:image" content="${esc(ogImage)}">` : null,
   ].filter(Boolean).join('\n');
   const heroTitle = str(config.hero_title)
@@ -1131,7 +1135,7 @@ function newCompany(slug) {
     phone: '', whatsapp: '', telegram: '', channel: '', colors: { primary: '', accent: '' },
     hero_title: '', hero_photo: '', delivery_time_text: '', park_note: '',
     features: [{ icon: '', title: '', text: '' }],
-    about: '', reviews_summary: [], source_2gis: '', currency: '', price_note: '',
+    about: '', reviews_summary: [], source_2gis: '', currency: '', price_note: '', og_title: '', og_description: '',
     machines: [{ id: '', kind: '', title: '', photo: '', purpose: '', rate_from: null, rate_to: null, unit: '', min_units: null, status: '' }],
     zones: [{ title: '', delivery_from: null, delivery_to: null }],
   };

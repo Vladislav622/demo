@@ -1,4 +1,4 @@
 {
-  "base_url": "",
+  "base_url": "https://vladislav622.github.io/demo",
   "help": "Адрес публикации без слеша в конце, например https://vladislav622.github.io/<repo>. Нужен для превью ссылки в WhatsApp (og:image и og:url — только абсолютные). Пусто — сборка работает, эти теги пропускаются."
 }

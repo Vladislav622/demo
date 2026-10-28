@@ -261,7 +261,7 @@ async function main() {
     return { title: document.title, desc: q('meta[name=description]')?.content, og: q('meta[property="og:title"]')?.content, locale: q('meta[property="og:locale"]')?.content,
       theme: q('meta[name=theme-color]')?.content, icon: await load(q('link[rel=icon]').href), touch: await load(q('link[rel=apple-touch-icon]').href) }; })()`);
   check('превью и значки: title, description, og:title, ru_RU, theme-color, favicon, apple-touch-icon 180',
-    /^Аренда спецтехники — /.test(meta.title) && meta.desc && meta.og === meta.title && meta.locale === 'ru_RU' && /^#[0-9a-f]{6}$/.test(meta.theme) && meta.icon > 0 && meta.touch === 180,
+    /^Аренда спецтехники — /.test(meta.title) && meta.desc && meta.og === (String(cfg.og_title || '').trim() || meta.title) && meta.locale === 'ru_RU' && /^#[0-9a-f]{6}$/.test(meta.theme) && meta.icon > 0 && meta.touch === 180,
     `«${meta.title}», theme ${meta.theme}, значок ${meta.icon}px, touch ${meta.touch}px`);
   const st = await js(`(${structureProbe})()`);
   check('доступность: lang=ru, header/main/footer, один h1, заголовки без пропусков, у полей есть подписи',
